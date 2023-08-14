@@ -1,6 +1,7 @@
 use self::voice::{Voice, VoiceOpts};
 use crate::{midi::MidiEvent, processor::Processor};
 
+mod envelope;
 pub mod oscillators;
 mod voice;
 
@@ -21,6 +22,10 @@ impl Synth {
         let voice = Voice::new(VoiceOpts {
             sample_rate: opts.sample_rate,
             wave: opts.wave,
+            attack: 0.25,
+            decay: 0.25,
+            sustain: 0.75,
+            release: 0.25,
         });
         Self {
             voices: std::iter::repeat(voice)

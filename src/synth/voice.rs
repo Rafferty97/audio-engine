@@ -1,20 +1,31 @@
 use crate::note::Note;
 
+use super::envelope::{AdsrEnvelope, AdsrPhase};
+
 #[derive(Clone, Copy)]
 pub struct Voice {
     inv_sample_rate: f32,
     wave: fn(f32) -> f32,
-    note: Option<Note>,
+    note: Note,
     velocity: f32,
     phase: f32,
-    on: bool,
-    a: f32,
+    envelope: AdsrEnvelope,
     counter: usize,
 }
 
 pub struct VoiceOpts {
+    /// The sample rate.
     pub sample_rate: u32,
+    /// The oscillator wave form.
     pub wave: fn(f32) -> f32,
+    /// Attack time in seconds.
+    pub attack: f32,
+    /// Decay time in seconds.
+    pub decay: f32,
+    /// Sustain level between 0 and 1.
+    pub sustain: f32,
+    /// Release time in seconds.
+    pub release: f32,
 }
 
 impl Voice {
@@ -23,71 +34,61 @@ impl Voice {
             inv_sample_rate: (opts.sample_rate as f32).recip(),
             wave: opts.wave,
             velocity: 0.0,
-            note: None,
+            note: Note::middle_c(),
             phase: 0.0,
-            on: false,
-            a: 0.0,
+            envelope: AdsrEnvelope::new(opts),
             counter: 0,
         }
     }
 }
 
 impl Voice {
-    /// Gets the note that the voice is currently playing or last played.
+    /// Gets the note that the voice is currently playing, if it is in the `Active` phase.
     pub fn note(&self) -> Option<Note> {
-        self.note
+        (self.envelope.phase() == AdsrPhase::Active).then_some(self.note)
     }
 
     /// If the voice is not active, then it will produce silence until re-triggered.
     pub fn active(&self) -> bool {
-        self.note.is_some()
+        self.envelope.phase() != AdsrPhase::Inactive
     }
 
     /// Gets the priority used for voice allocation, with the lowest priority being preferred.
     pub fn priority(&self, note: Note) -> usize {
-        match (self.note, self.on) {
+        match (self.note == note, self.envelope.phase()) {
             // Note has been retriggered
-            (Some(n), true) if n == note => 0,
+            (true, AdsrPhase::Active) => 0,
             // Unused voice
-            (None, _) => 1,
+            (_, AdsrPhase::Inactive) => 1,
             // Released voice for the same note
-            (Some(n), false) if n == note => 2,
+            (true, AdsrPhase::Released) => 2,
             // Oldest released note
-            (Some(_), false) => 3 + self.counter,
+            (false, AdsrPhase::Released) => 3 + self.counter,
             // Oldest triggered note
-            (Some(_), true) => usize::MAX / 2 + self.counter,
+            (false, AdsrPhase::Active) => usize::MAX / 2 + self.counter,
         }
     }
 
     pub fn trigger(&mut self, note: Note, velocity: u8, counter: usize) {
-        self.note = Some(note);
+        self.note = note;
         self.velocity = (velocity as f32) / 127.0;
-        self.on = true;
+        self.envelope.trigger();
         self.counter = counter;
     }
 
     pub fn release(&mut self, counter: usize) {
-        self.on = false;
+        self.envelope.release();
         self.counter = counter;
     }
 
     pub fn process(&mut self, audio_out: &mut [f32]) {
-        let Some(note) = self.note else {
-            return;
-        };
-
-        let omega = note.frequency() * self.inv_sample_rate;
+        let omega = self.note.frequency() * self.inv_sample_rate;
         for sample in audio_out.iter_mut() {
-            *sample += self.a * self.velocity * (self.wave)(self.phase);
+            *sample += self.envelope.process() * self.velocity * (self.wave)(self.phase);
             self.phase += omega;
             if self.phase >= 1.0 {
                 self.phase -= 1.0;
             }
-            self.a = f32::clamp(self.a + if self.on { 0.001 } else { -0.001 }, 0.0, 1.0);
-        }
-
-        if !self.on && self.a <= 0.0 {
-            self.note = None;
         }
     }
 }
