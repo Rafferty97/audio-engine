@@ -1,15 +1,12 @@
-use constants::DEFAULT_SAMPLE_RATE;
-use midir::{Ignore, MidiInput};
-use rand::Rng;
-use rodio::source::SineWave;
-use rodio::Source;
-use std::io::{stdin, stdout, Write};
-use std::time::Duration;
-
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{Processor, ProcessorData};
-use crate::synth::{Synth, SynthOpts};
+use crate::synth::{oscillators, Synth, SynthOpts};
+use constants::DEFAULT_SAMPLE_RATE;
+use midir::{Ignore, MidiInput};
+use rodio::Source;
+use std::io::{stdin, stdout, Write};
+use std::time::Duration;
 
 mod constants;
 mod midi;
@@ -30,6 +27,7 @@ fn main() {
 
     // List available input ports.
     let in_ports = midi_in.ports();
+    let _connection;
     if !in_ports.is_empty() {
         // Prompt user to select a MIDI input port.
         println!("Available input ports:");
@@ -47,7 +45,6 @@ fn main() {
         // Create a callback to handle incoming MIDI messages.
         let callback = move |_, message: &[u8], _: &mut ()| {
             let event = MidiEvent::from_raw(message);
-            println!("{:?}", event);
             if event.is_invalid() {
                 return;
             }
@@ -55,7 +52,7 @@ fn main() {
         };
 
         // Connect to the selected MIDI input port.
-        let _connection = midi_in
+        _connection = midi_in
             .connect(&input_port, "midi-read-connection", callback, ())
             .unwrap();
     } else {
@@ -91,6 +88,7 @@ fn main() {
         let mut synth = Synth::new(SynthOpts {
             sample_rate: DEFAULT_SAMPLE_RATE,
             num_voices: 16,
+            wave: oscillators::tri,
         });
         'outer: loop {
             let mut events = vec![];
