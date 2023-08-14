@@ -9,7 +9,7 @@ pub struct Voice {
     phase: f32,
     on: bool,
     a: f32,
-    age: usize,
+    counter: usize,
 }
 
 pub struct VoiceOpts {
@@ -27,7 +27,7 @@ impl Voice {
             phase: 0.0,
             on: false,
             a: 0.0,
-            age: 0,
+            counter: 0,
         }
     }
 }
@@ -45,28 +45,28 @@ impl Voice {
 
     pub fn priority(&self, note: Note) -> usize {
         match self.note {
-            None => usize::MAX - 1,
-            Some(n) if n == note => usize::MAX,
+            None => 1,
+            Some(n) if n == note => 0,
             Some(_) => {
                 if self.on {
-                    self.age
+                    self.counter + usize::MAX / 2
                 } else {
-                    self.age + usize::MAX / 2
+                    self.counter
                 }
             }
         }
     }
 
-    pub fn trigger(&mut self, note: Note, velocity: u8) {
+    pub fn trigger(&mut self, note: Note, velocity: u8, counter: usize) {
         self.note = Some(note);
         self.velocity = 1.0; // (velocity as f32) / 127.0;
         self.on = true;
-        self.age = 0;
+        self.counter = counter;
     }
 
-    pub fn release(&mut self) {
+    pub fn release(&mut self, counter: usize) {
         self.on = false;
-        self.age = 0;
+        self.counter = counter;
     }
 
     pub fn process(&mut self, audio_out: &mut [f32]) {
@@ -83,7 +83,6 @@ impl Voice {
             }
             self.a = f32::clamp(self.a + if self.on { 0.001 } else { -0.001 }, 0.0, 1.0);
         }
-        self.age += audio_out.len();
 
         if !self.on && self.a <= 0.0 {
             self.note = None;

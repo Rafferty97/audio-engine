@@ -6,6 +6,7 @@ mod voice;
 
 pub struct Synth {
     voices: Vec<Voice>,
+    counter: usize,
 }
 
 #[derive(Copy, Clone)]
@@ -25,6 +26,7 @@ impl Synth {
             voices: std::iter::repeat(voice)
                 .take(opts.num_voices as usize)
                 .collect(),
+            counter: 0,
         }
     }
 }
@@ -39,13 +41,15 @@ impl Processor for Synth {
                     let voice = self
                         .voices
                         .iter_mut()
-                        .max_by_key(|v| v.priority(*note))
+                        .min_by_key(|v| v.priority(*note))
                         .unwrap();
-                    voice.trigger(*note, *velocity)
+                    voice.trigger(*note, *velocity, self.counter);
+                    self.counter += 1;
                 }
                 MidiEvent::NoteOff { note, .. } => {
                     if let Some(voice) = self.voices.iter_mut().find(|v| v.note() == Some(*note)) {
-                        voice.release()
+                        voice.release(self.counter);
+                        self.counter += 1;
                     }
                 }
                 _ => {}
