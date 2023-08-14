@@ -51,11 +51,6 @@ impl Voice {
         (self.envelope.phase() == AdsrPhase::Active).then_some(self.note)
     }
 
-    /// If the voice is not active, then it will produce silence until re-triggered.
-    pub fn active(&self) -> bool {
-        self.envelope.phase() != AdsrPhase::Inactive
-    }
-
     /// Gets the priority used for voice allocation, with the lowest priority being preferred.
     pub fn priority(&self, note: Note) -> usize {
         match (self.note == note, self.envelope.phase()) {
