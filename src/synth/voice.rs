@@ -43,23 +43,25 @@ impl Voice {
         self.note.is_some()
     }
 
+    /// Gets the priority used for voice allocation, with the lowest priority being preferred.
     pub fn priority(&self, note: Note) -> usize {
-        match self.note {
-            None => 1,
-            Some(n) if n == note => 0,
-            Some(_) => {
-                if self.on {
-                    self.counter + usize::MAX / 2
-                } else {
-                    self.counter
-                }
-            }
+        match (self.note, self.on) {
+            // Note has been retriggered
+            (Some(n), true) if n == note => 0,
+            // Unused voice
+            (None, _) => 1,
+            // Released voice for the same note
+            (Some(n), false) if n == note => 2,
+            // Oldest released note
+            (Some(_), false) => 3 + self.counter,
+            // Oldest triggered note
+            (Some(_), true) => usize::MAX / 2 + self.counter,
         }
     }
 
     pub fn trigger(&mut self, note: Note, velocity: u8, counter: usize) {
         self.note = Some(note);
-        self.velocity = 1.0; // (velocity as f32) / 127.0;
+        self.velocity = (velocity as f32) / 127.0;
         self.on = true;
         self.counter = counter;
     }
