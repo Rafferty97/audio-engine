@@ -1,6 +1,7 @@
+use crate::convert::interleave_stereo;
 use crate::midi::MidiEvent;
 use crate::note::Note;
-use crate::processor::{Processor, ProcessorData};
+use crate::processor::{Autopan, Pipeline, Processor, ProcessorData, Saturator};
 use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamConfig;
@@ -9,6 +10,7 @@ use std::io::{stdin, stdout, Write};
 use std::time::Duration;
 
 mod constants;
+mod convert;
 mod midi;
 mod note;
 mod processor;
@@ -83,17 +85,25 @@ fn main() {
         });
     }
 
-    // Create the synth
-    let mut synth = Synth::new(SynthOpts {
+    // Create the audio engine
+    let synth = Synth::new(SynthOpts {
         num_voices: 16,
         voice_opts: VoiceOpts {
             wave: oscillators::sine,
-            attack: 0.002,
-            decay: 0.002,
+            attack: 0.05,
+            decay: 0.05,
             sustain: 1.0,
-            release: 0.002,
+            release: 0.05,
         },
     });
+    let autopan = Autopan::new(1.0);
+    let saturator = Saturator::new(|s| s.abs().powf(0.9) * s.signum());
+    let engine = Pipeline::new([
+        Box::new(synth) as Box<dyn Processor + Send>,
+        Box::new(saturator) as Box<dyn Processor + Send>,
+        Box::new(autopan) as Box<dyn Processor + Send>,
+    ]);
+    let mut engine: Box<dyn Processor + Send> = Box::new(engine);
 
     // Create the stream
     let config = StreamConfig {
@@ -103,7 +113,7 @@ fn main() {
     };
 
     // Configure the audio engine
-    synth.set_sample_rate(config.sample_rate.0);
+    engine.set_sample_rate(config.sample_rate.0);
 
     let stream = device
         .build_output_stream(
@@ -114,15 +124,16 @@ fn main() {
                     events.push((0, event));
                 }
                 let mut midi_out = Vec::new();
-                let mut mono_buffer = vec![0.0; buffer.len() / 2];
-                synth.process(ProcessorData {
+                let mut left = vec![0.0; buffer.len() / 2];
+                let mut right = vec![0.0; buffer.len() / 2];
+                engine.process(ProcessorData {
                     audio_in: &[],
-                    audio_out: &mut [&mut mono_buffer],
+                    audio_out: &mut [&mut left, &mut right],
                     midi_in: &events,
                     midi_out: &mut midi_out,
                 });
                 // Turn mono into stereo
-                interleave_stereo(&mono_buffer, &mono_buffer, buffer);
+                interleave_stereo(&left, &right, buffer);
             },
             |err| {
                 eprintln!("{:?}", err);
@@ -137,33 +148,4 @@ fn main() {
     println!("Press Enter to exit...");
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
-}
-
-/// Interleaves the two channels of a stereo signal.
-fn interleave_stereo(left: &[f32], right: &[f32], output: &mut [f32]) {
-    let lr = left.iter().zip(right.iter());
-    for (i, (&ls, &rs)) in lr.enumerate() {
-        output[2 * i] = ls;
-        output[2 * i + 1] = rs;
-    }
-}
-
-/// Converts a LR signal to a MS signal
-fn leftright_to_midside(left: &[f32], right: &[f32], mid: &mut [f32], side: &mut [f32]) {
-    let lr = left.iter().zip(right.iter());
-    let ms = mid.iter_mut().zip(side.iter_mut());
-    for ((&l, &r), (m, s)) in lr.zip(ms) {
-        *m = 0.5 * (l + r);
-        *s = 0.5 * (l - r);
-    }
-}
-
-/// Converts a LR signal to a MS signal
-fn midside_to_leftright(mid: &[f32], side: &[f32], left: &mut [f32], right: &mut [f32]) {
-    let ms = mid.iter().zip(side.iter());
-    let lr = left.iter_mut().zip(right.iter_mut());
-    for ((&m, &s), (l, r)) in ms.zip(lr) {
-        *l = m + s;
-        *r = m - s;
-    }
 }

@@ -1,4 +1,11 @@
 use crate::midi::MidiEvent;
+pub use autopan::Autopan;
+pub use pipeline::Pipeline;
+pub use saturator::Saturator;
+
+mod autopan;
+mod pipeline;
+mod saturator;
 
 pub struct ProcessorData<'a> {
     /// List of input MIDI events

@@ -84,10 +84,12 @@ impl Voice {
         self.counter = counter;
     }
 
-    pub fn process(&mut self, audio_out: &mut [f32]) {
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let omega = self.note.frequency() * self.inv_sample_rate;
-        for sample in audio_out.iter_mut() {
-            *sample += self.envelope.process() * self.velocity * (self.wave)(self.phase);
+        for (left, right) in left.iter_mut().zip(right.iter_mut()) {
+            let sample = self.envelope.process() * self.velocity * (self.wave)(self.phase);
+            *left += sample;
+            *right += sample;
             self.phase += omega;
             if self.phase >= 1.0 {
                 self.phase -= 1.0;

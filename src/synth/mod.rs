@@ -1,6 +1,10 @@
 use self::voice::Voice;
 pub use self::voice::VoiceOpts;
-use crate::{midi::MidiEvent, processor::Processor};
+use crate::{
+    convert::leftright_to_mono,
+    midi::MidiEvent,
+    processor::{Processor, ProcessorData},
+};
 
 mod envelope;
 pub mod oscillators;
@@ -38,7 +42,7 @@ impl Processor for Synth {
         }
     }
 
-    fn process(&mut self, data: crate::processor::ProcessorData) {
+    fn process(&mut self, data: ProcessorData) {
         for (_, event) in data.midi_in {
             match event {
                 MidiEvent::NoteOn { note, velocity, .. } => {
@@ -60,10 +64,28 @@ impl Processor for Synth {
             }
         }
 
-        data.audio_out[0].fill(0.0);
+        adapt_mono(data.audio_out, |left, right| {
+            left.fill(0.0);
+            right.fill(0.0);
+            for voice in &mut self.voices {
+                voice.process(left, right);
+            }
+        })
+    }
+}
 
-        for voice in &mut self.voices {
-            voice.process(data.audio_out[0]);
+/// Allows outputting stereo audio to either a stereo pair of channels, or a single mono buffer.
+fn adapt_mono(buffers: &mut [&mut [f32]], f: impl FnOnce(&mut [f32], &mut [f32])) {
+    match buffers {
+        [] => {}
+        [mono] => {
+            let mut buffer = vec![0.0; 2 * mono.len()]; // FIXME: Don't init
+            let (left, right) = buffer.split_at_mut(mono.len());
+            f(left, right);
+            leftright_to_mono(left, right, mono);
+        }
+        [left, right, ..] => {
+            f(left, right);
         }
     }
 }
