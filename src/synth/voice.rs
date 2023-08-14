@@ -8,6 +8,7 @@ pub struct Voice {
     note: Note,
     velocity: f32,
     phase: f32,
+    bend: f32,
     envelope: AdsrEnvelope,
     counter: usize,
 }
@@ -34,6 +35,7 @@ impl Voice {
             velocity: 0.0,
             note: Note::middle_c(),
             phase: 0.0,
+            bend: 1.0,
             envelope: AdsrEnvelope::new(opts),
             counter: 0,
         }
@@ -79,8 +81,12 @@ impl Voice {
         self.counter = counter;
     }
 
+    pub fn set_pitch_bend(&mut self, bend: f32) {
+        self.bend = bend;
+    }
+
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let omega = self.note.frequency() * self.inv_sample_rate;
+        let omega = self.bend * self.note.frequency() * self.inv_sample_rate;
         for (left, right) in left.iter_mut().zip(right.iter_mut()) {
             let sample = self.envelope.process() * self.velocity * (self.wave)(self.phase);
             *left += sample;

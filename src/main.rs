@@ -100,7 +100,7 @@ fn main() {
     chord.set_chord(0x10010001);
     let mut autopan = Autopan::new(1.0);
     autopan.set_amount(0.2);
-    let saturator = Saturator::new(|s| s.abs().powf(0.9) * s.signum());
+    let saturator = Saturator::new(|s| s.abs().powf(0.8) * s.signum());
     let engine = Pipeline::new([
         Box::new(chord) as Box<dyn Processor + Send>,
         Box::new(synth) as Box<dyn Processor + Send>,
