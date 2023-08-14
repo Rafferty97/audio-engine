@@ -33,6 +33,10 @@ impl Note {
     pub fn frequency(&self) -> f32 {
         440.0 * 2.0f32.powf((self.0 as f32 - 69.0) / 12.0)
     }
+
+    pub fn transpose(&self, offset: i8) -> Self {
+        Self(self.0.saturating_add_signed(offset))
+    }
 }
 
 fn note_name(note: u8) -> &'static str {

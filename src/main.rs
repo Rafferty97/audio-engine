@@ -7,8 +7,9 @@ use std::io::{stdin, stdout, Write};
 use std::time::Duration;
 
 use crate::midi::MidiEvent;
+use crate::note::Note;
 use crate::processor::{Processor, ProcessorData};
-use crate::synth::Synth;
+use crate::synth::{Synth, SynthOpts};
 
 mod constants;
 mod midi;
@@ -24,46 +25,73 @@ fn main() {
     let mut midi_in = MidiInput::new("MIDI input").unwrap();
     midi_in.ignore(Ignore::ActiveSense);
 
+    // MIDI channel
+    let (midi_tx, midi_rx) = std::sync::mpsc::channel::<MidiEvent>();
+
     // List available input ports.
     let in_ports = midi_in.ports();
-    if in_ports.is_empty() {
-        println!("No MIDI input ports available.");
-        return;
-    }
-
-    // Prompt user to select a MIDI input port.
-    println!("Available input ports:");
-    for (i, p) in in_ports.iter().enumerate() {
-        println!("{}: {}", i, midi_in.port_name(p).unwrap());
-    }
-    // print!("Please select input port: ");
-    stdout().flush().unwrap();
-    // let mut input = String::new();
-    // stdin().read_line(&mut input).unwrap();
-    // let input_port = input.trim().parse::<usize>().unwrap();
-    let input_port = 0;
-    let input_port = in_ports.into_iter().nth(input_port).unwrap();
-
-    // Create a callback to handle incoming MIDI messages.
-    let (midi_tx, midi_rx) = std::sync::mpsc::channel::<MidiEvent>();
-    let callback = move |_, message: &[u8], _: &mut ()| {
-        let event = MidiEvent::from_raw(message);
-        if event.is_invalid() {
-            return;
+    if !in_ports.is_empty() {
+        // Prompt user to select a MIDI input port.
+        println!("Available input ports:");
+        for (i, p) in in_ports.iter().enumerate() {
+            println!("{}: {}", i, midi_in.port_name(p).unwrap());
         }
-        midi_tx.send(event).ok();
-    };
+        // print!("Please select input port: ");
+        stdout().flush().unwrap();
+        // let mut input = String::new();
+        // stdin().read_line(&mut input).unwrap();
+        // let input_port = input.trim().parse::<usize>().unwrap();
+        let input_port = 0;
+        let input_port = in_ports.into_iter().nth(input_port).unwrap();
 
-    // Connect to the selected MIDI input port.
-    let _connection = midi_in
-        .connect(&input_port, "midi-read-connection", callback, ())
-        .unwrap();
+        // Create a callback to handle incoming MIDI messages.
+        let callback = move |_, message: &[u8], _: &mut ()| {
+            let event = MidiEvent::from_raw(message);
+            println!("{:?}", event);
+            if event.is_invalid() {
+                return;
+            }
+            midi_tx.send(event).ok();
+        };
+
+        // Connect to the selected MIDI input port.
+        let _connection = midi_in
+            .connect(&input_port, "midi-read-connection", callback, ())
+            .unwrap();
+    } else {
+        println!("No MIDI input ports available.");
+        std::thread::spawn(move || loop {
+            let off = |note: Note| MidiEvent::NoteOff {
+                channel: 0,
+                note,
+                velocity: 0,
+            };
+            let on = |note: Note| MidiEvent::NoteOn {
+                channel: 0,
+                note,
+                velocity: 127,
+            };
+            midi_tx.send(on(Note::middle_c())).ok();
+            std::thread::sleep(Duration::from_millis(250));
+            midi_tx.send(on(Note::middle_c().transpose(4))).ok();
+            std::thread::sleep(Duration::from_millis(250));
+            midi_tx.send(on(Note::middle_c().transpose(7))).ok();
+            std::thread::sleep(Duration::from_millis(500));
+            midi_tx.send(off(Note::middle_c())).ok();
+            midi_tx.send(off(Note::middle_c().transpose(4))).ok();
+            midi_tx.send(off(Note::middle_c().transpose(7))).ok();
+            std::thread::sleep(Duration::from_millis(1000));
+        });
+    }
 
     // Create the synth
     let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(1);
     let source = BlockSource::new(audio_rx);
     std::thread::spawn(move || {
-        let mut synth = Synth::new();
+        let mut synth = Synth::new(SynthOpts {
+            sample_rate: DEFAULT_SAMPLE_RATE,
+            num_voices: 16,
+        });
         'outer: loop {
             let mut events = vec![];
             loop {
@@ -88,8 +116,6 @@ fn main() {
             }
         }
     });
-
-    // let source = SineWave::new(440.0);
 
     // Play the sound on the default audio output.
     stream_handle.play_raw(source).unwrap();

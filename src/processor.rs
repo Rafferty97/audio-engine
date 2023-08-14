@@ -12,7 +12,5 @@ pub struct ProcessorData<'a> {
 }
 
 pub trait Processor {
-    fn set_sample_rate(&mut self, sample_rate: u32);
-
     fn process(&mut self, data: ProcessorData);
 }
