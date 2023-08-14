@@ -60,6 +60,8 @@ impl Processor for Synth {
             }
         }
 
+        data.audio_out[0].fill(0.0);
+
         for voice in &mut self.voices {
             voice.process(data.audio_out[0]);
         }

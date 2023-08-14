@@ -1,10 +1,11 @@
+use crate::constants::DEFAULT_SAMPLE_RATE;
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{Processor, ProcessorData};
 use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
-use constants::DEFAULT_SAMPLE_RATE;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::StreamConfig;
 use midir::{Ignore, MidiInput};
-use rodio::Source;
 use std::io::{stdin, stdout, Write};
 use std::time::Duration;
 
@@ -15,8 +16,9 @@ mod processor;
 mod synth;
 
 fn main() {
-    // Get the default audio output device.
-    let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
+    // Get the default output device.
+    let host = cpal::default_host();
+    let device = host.default_output_device().unwrap();
 
     // Set up the MIDI input interface.
     let mut midi_in = MidiInput::new("MIDI input").unwrap();
@@ -82,95 +84,52 @@ fn main() {
     }
 
     // Create the synth
-    let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(1);
-    let source = BlockSource::new(audio_rx);
-    std::thread::spawn(move || {
-        let mut synth = Synth::new(SynthOpts {
-            num_voices: 16,
-            voice_opts: VoiceOpts {
-                wave: oscillators::sine,
-                attack: 0.002,
-                decay: 0.002,
-                sustain: 1.0,
-                release: 0.002,
-            },
-        });
-        'outer: loop {
-            let mut events = vec![];
-            loop {
-                match midi_rx.try_recv() {
-                    Ok(event) => events.push((0, event)),
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        break 'outer;
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                }
-            }
-            let mut samples = [0f32; 128];
-            let mut midi_out = Vec::new();
-            synth.process(ProcessorData {
-                audio_in: &[],
-                audio_out: &mut [&mut samples],
-                midi_in: &events,
-                midi_out: &mut midi_out,
-            });
-            if audio_tx.send(samples.into()).is_err() {
-                break;
-            }
-        }
+    let mut synth = Synth::new(SynthOpts {
+        num_voices: 16,
+        voice_opts: VoiceOpts {
+            wave: oscillators::sine,
+            attack: 0.002,
+            decay: 0.002,
+            sustain: 1.0,
+            release: 0.002,
+        },
     });
 
-    // Play the sound on the default audio output.
-    stream_handle.play_raw(source).unwrap();
+    // Create the stream
+    let config = StreamConfig {
+        buffer_size: cpal::BufferSize::Default,
+        channels: 1,
+        sample_rate: cpal::SampleRate(DEFAULT_SAMPLE_RATE),
+    };
+
+    let stream = device
+        .build_output_stream(
+            &config,
+            move |buffer: &mut [f32], _| {
+                println!("{}", buffer.len());
+                let mut events = vec![];
+                while let Ok(event) = midi_rx.try_recv() {
+                    events.push((0, event));
+                }
+                let mut midi_out = Vec::new();
+                synth.process(ProcessorData {
+                    audio_in: &[],
+                    audio_out: &mut [buffer],
+                    midi_in: &events,
+                    midi_out: &mut midi_out,
+                });
+            },
+            |err| {
+                eprintln!("{:?}", err);
+            },
+            None,
+        )
+        .unwrap();
+
+    stream.play().unwrap();
 
     // Keep the program running.
     println!("Press Enter to exit...");
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
-}
-
-struct BlockSource {
-    block: std::vec::IntoIter<f32>,
-    rx: std::sync::mpsc::Receiver<Vec<f32>>,
-    channels: u16,
-    sample_rate: u32,
-}
-
-impl BlockSource {
-    pub fn new(rx: std::sync::mpsc::Receiver<Vec<f32>>) -> Self {
-        Self {
-            block: Vec::new().into_iter(),
-            rx,
-            channels: 1,
-            sample_rate: DEFAULT_SAMPLE_RATE,
-        }
-    }
-}
-
-impl Iterator for BlockSource {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<f32> {
-        loop {
-            if let Some(sample) = self.block.next() {
-                return Some(sample);
-            }
-            self.block = self.rx.recv().ok()?.into_iter();
-        }
-    }
-}
-
-impl Source for BlockSource {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-    fn channels(&self) -> u16 {
-        self.channels
-    }
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-    fn total_duration(&self) -> Option<Duration> {
-        None
-    }
 }
