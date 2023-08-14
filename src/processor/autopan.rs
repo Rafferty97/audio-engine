@@ -6,6 +6,7 @@ pub struct Autopan {
     inv_sample_rate: f32,
     frequency: f32,
     phase: f32,
+    amount: f32,
 }
 
 impl Autopan {
@@ -14,7 +15,12 @@ impl Autopan {
             inv_sample_rate: 0.0,
             frequency,
             phase: 0.0,
+            amount: 1.0,
         }
+    }
+
+    pub fn set_amount(&mut self, amount: f32) {
+        self.amount = amount;
     }
 }
 
@@ -31,7 +37,8 @@ impl Processor for Autopan {
             let samples = buffer_in.iter().zip(buffer_out.iter_mut());
             let offset = PI * i as f32;
             for (i, (sample_in, sample_out)) in samples.enumerate() {
-                *sample_out = *sample_in * (1.0 + (2.0 * PI * phase(i) + offset).sin());
+                let sin = (2.0 * PI * phase(i) + offset).sin();
+                *sample_out = *sample_in * (1.0 + self.amount * sin);
             }
         }
 

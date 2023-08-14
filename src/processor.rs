@@ -1,9 +1,11 @@
 use crate::midi::MidiEvent;
 pub use autopan::Autopan;
+pub use chord::Chord;
 pub use pipeline::Pipeline;
 pub use saturator::Saturator;
 
 mod autopan;
+mod chord;
 mod pipeline;
 mod saturator;
 

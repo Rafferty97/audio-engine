@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct Note(u8);
+pub struct Note(pub u8);
 
 impl From<u8> for Note {
     fn from(value: u8) -> Self {

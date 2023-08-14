@@ -1,7 +1,7 @@
 use crate::convert::interleave_stereo;
 use crate::midi::MidiEvent;
 use crate::note::Note;
-use crate::processor::{Autopan, Pipeline, Processor, ProcessorData, Saturator};
+use crate::processor::{Autopan, Chord, Pipeline, Processor, ProcessorData, Saturator};
 use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamConfig;
@@ -95,9 +95,14 @@ fn main() {
             release: 0.05,
         },
     });
-    let autopan = Autopan::new(1.0);
+    let mut chord = Chord::new();
+    // chord.set_chord(0b10001001);
+    chord.set_chord(0x10010001);
+    let mut autopan = Autopan::new(1.0);
+    autopan.set_amount(0.2);
     let saturator = Saturator::new(|s| s.abs().powf(0.9) * s.signum());
     let engine = Pipeline::new([
+        Box::new(chord) as Box<dyn Processor + Send>,
         Box::new(synth) as Box<dyn Processor + Send>,
         Box::new(saturator) as Box<dyn Processor + Send>,
         Box::new(autopan) as Box<dyn Processor + Send>,
