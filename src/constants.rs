@@ -1,1 +1,0 @@
-pub const DEFAULT_SAMPLE_RATE: u32 = 44100;

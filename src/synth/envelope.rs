@@ -1,5 +1,3 @@
-use crate::constants::DEFAULT_SAMPLE_RATE;
-
 use super::voice::VoiceOpts;
 
 #[derive(Clone, Copy)]
@@ -52,7 +50,7 @@ pub enum AdsrPhase {
 impl AdsrEnvelope {
     pub fn new(opts: VoiceOpts) -> Self {
         Self {
-            inv_sample_rate: 1.0 / (DEFAULT_SAMPLE_RATE as f32),
+            inv_sample_rate: 0.0,
             inv_attack: opts.attack.max(0.0001).recip(),
             inv_decay: opts.decay.max(0.0001).recip(),
             sustain: opts.sustain.clamp(0.0, 1.0),

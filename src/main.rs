@@ -9,7 +9,6 @@ use midir::{Ignore, MidiInput};
 use std::io::{stdin, stdout, Write};
 use std::time::Duration;
 
-mod constants;
 mod convert;
 mod midi;
 mod note;

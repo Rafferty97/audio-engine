@@ -1,5 +1,5 @@
 use super::envelope::{AdsrEnvelope, AdsrPhase};
-use crate::{constants::DEFAULT_SAMPLE_RATE, note::Note};
+use crate::note::Note;
 
 #[derive(Clone, Copy)]
 pub struct Voice {
@@ -29,7 +29,7 @@ pub struct VoiceOpts {
 impl Voice {
     pub fn new(opts: VoiceOpts) -> Self {
         Self {
-            inv_sample_rate: (DEFAULT_SAMPLE_RATE as f32).recip(),
+            inv_sample_rate: 0.0,
             wave: opts.wave,
             velocity: 0.0,
             note: Note::middle_c(),
