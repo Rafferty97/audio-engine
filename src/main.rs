@@ -1,4 +1,3 @@
-use crate::constants::DEFAULT_SAMPLE_RATE;
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{Processor, ProcessorData};
@@ -19,6 +18,7 @@ fn main() {
     // Get the default output device.
     let host = cpal::default_host();
     let device = host.default_output_device().unwrap();
+    let config = device.default_output_config().unwrap();
 
     // Set up the MIDI input interface.
     let mut midi_in = MidiInput::new("MIDI input").unwrap();
@@ -97,27 +97,32 @@ fn main() {
 
     // Create the stream
     let config = StreamConfig {
-        buffer_size: cpal::BufferSize::Default,
-        channels: 1,
-        sample_rate: cpal::SampleRate(DEFAULT_SAMPLE_RATE),
+        buffer_size: cpal::BufferSize::Fixed(256),
+        channels: 2,
+        sample_rate: config.sample_rate(),
     };
+
+    // Configure the audio engine
+    synth.set_sample_rate(config.sample_rate.0);
 
     let stream = device
         .build_output_stream(
             &config,
             move |buffer: &mut [f32], _| {
-                println!("{}", buffer.len());
                 let mut events = vec![];
                 while let Ok(event) = midi_rx.try_recv() {
                     events.push((0, event));
                 }
                 let mut midi_out = Vec::new();
+                let mut mono_buffer = vec![0.0; buffer.len() / 2];
                 synth.process(ProcessorData {
                     audio_in: &[],
-                    audio_out: &mut [buffer],
+                    audio_out: &mut [&mut mono_buffer],
                     midi_in: &events,
                     midi_out: &mut midi_out,
                 });
+                // Turn mono into stereo
+                interleave_stereo(&mono_buffer, &mono_buffer, buffer);
             },
             |err| {
                 eprintln!("{:?}", err);
@@ -132,4 +137,33 @@ fn main() {
     println!("Press Enter to exit...");
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
+}
+
+/// Interleaves the two channels of a stereo signal.
+fn interleave_stereo(left: &[f32], right: &[f32], output: &mut [f32]) {
+    let lr = left.iter().zip(right.iter());
+    for (i, (&ls, &rs)) in lr.enumerate() {
+        output[2 * i] = ls;
+        output[2 * i + 1] = rs;
+    }
+}
+
+/// Converts a LR signal to a MS signal
+fn leftright_to_midside(left: &[f32], right: &[f32], mid: &mut [f32], side: &mut [f32]) {
+    let lr = left.iter().zip(right.iter());
+    let ms = mid.iter_mut().zip(side.iter_mut());
+    for ((&l, &r), (m, s)) in lr.zip(ms) {
+        *m = 0.5 * (l + r);
+        *s = 0.5 * (l - r);
+    }
+}
+
+/// Converts a LR signal to a MS signal
+fn midside_to_leftright(mid: &[f32], side: &[f32], left: &mut [f32], right: &mut [f32]) {
+    let ms = mid.iter().zip(side.iter());
+    let lr = left.iter_mut().zip(right.iter_mut());
+    for ((&m, &s), (l, r)) in ms.zip(lr) {
+        *l = m + s;
+        *r = m - s;
+    }
 }
