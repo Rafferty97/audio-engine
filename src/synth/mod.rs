@@ -1,4 +1,5 @@
-use self::voice::{Voice, VoiceOpts};
+use self::voice::Voice;
+pub use self::voice::VoiceOpts;
 use crate::{midi::MidiEvent, processor::Processor};
 
 mod envelope;
@@ -12,21 +13,13 @@ pub struct Synth {
 
 #[derive(Copy, Clone)]
 pub struct SynthOpts {
-    pub sample_rate: u32,
     pub num_voices: u8,
-    pub wave: fn(f32) -> f32,
+    pub voice_opts: VoiceOpts,
 }
 
 impl Synth {
     pub fn new(opts: SynthOpts) -> Self {
-        let voice = Voice::new(VoiceOpts {
-            sample_rate: opts.sample_rate,
-            wave: opts.wave,
-            attack: 0.25,
-            decay: 0.25,
-            sustain: 0.75,
-            release: 0.25,
-        });
+        let voice = Voice::new(opts.voice_opts);
         Self {
             voices: std::iter::repeat(voice)
                 .take(opts.num_voices as usize)
@@ -39,6 +32,12 @@ impl Synth {
 impl Synth {}
 
 impl Processor for Synth {
+    fn set_sample_rate(&mut self, sample_rate: u32) {
+        for voice in &mut self.voices {
+            voice.set_sample_rate(sample_rate);
+        }
+    }
+
     fn process(&mut self, data: crate::processor::ProcessorData) {
         for (_, event) in data.midi_in {
             match event {

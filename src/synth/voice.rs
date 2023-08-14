@@ -1,6 +1,5 @@
-use crate::note::Note;
-
 use super::envelope::{AdsrEnvelope, AdsrPhase};
+use crate::{constants::DEFAULT_SAMPLE_RATE, note::Note};
 
 #[derive(Clone, Copy)]
 pub struct Voice {
@@ -13,9 +12,8 @@ pub struct Voice {
     counter: usize,
 }
 
+#[derive(Clone, Copy)]
 pub struct VoiceOpts {
-    /// The sample rate.
-    pub sample_rate: u32,
     /// The oscillator wave form.
     pub wave: fn(f32) -> f32,
     /// Attack time in seconds.
@@ -31,7 +29,7 @@ pub struct VoiceOpts {
 impl Voice {
     pub fn new(opts: VoiceOpts) -> Self {
         Self {
-            inv_sample_rate: (opts.sample_rate as f32).recip(),
+            inv_sample_rate: (DEFAULT_SAMPLE_RATE as f32).recip(),
             wave: opts.wave,
             velocity: 0.0,
             note: Note::middle_c(),
@@ -43,6 +41,11 @@ impl Voice {
 }
 
 impl Voice {
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        self.inv_sample_rate = (sample_rate as f32).recip();
+        self.envelope.set_sample_rate(sample_rate);
+    }
+
     /// Gets the note that the voice is currently playing, if it is in the `Active` phase.
     pub fn note(&self) -> Option<Note> {
         (self.envelope.phase() == AdsrPhase::Active).then_some(self.note)

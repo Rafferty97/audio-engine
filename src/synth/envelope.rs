@@ -1,17 +1,19 @@
+use crate::constants::DEFAULT_SAMPLE_RATE;
+
 use super::voice::VoiceOpts;
 
 #[derive(Clone, Copy)]
 pub struct AdsrEnvelope {
     /// Duration of a sample in seconds.
     inv_sample_rate: f32,
-    /// Attack time in seconds.
-    attack: f32,
-    /// Decay time in seconds.
-    decay: f32,
+    /// Attack rate in inverse seconds.
+    inv_attack: f32,
+    /// Decay rate in inverse seconds.
+    inv_decay: f32,
     /// Inverted sustain level between 1 and 0.
     sustain: f32,
-    /// Release time in seconds.
-    release: f32,
+    /// Release rate in inverse seconds.
+    inv_release: f32,
     /// The current envelope state.
     state: AdsrState,
     /// The current amplitude.0
@@ -50,14 +52,18 @@ pub enum AdsrPhase {
 impl AdsrEnvelope {
     pub fn new(opts: VoiceOpts) -> Self {
         Self {
-            inv_sample_rate: 1.0 / (opts.sample_rate as f32),
-            attack: opts.attack.max(0.0),
-            decay: opts.decay.max(0.0),
+            inv_sample_rate: 1.0 / (DEFAULT_SAMPLE_RATE as f32),
+            inv_attack: opts.attack.max(0.0001).recip(),
+            inv_decay: opts.decay.max(0.0001).recip(),
             sustain: opts.sustain.clamp(0.0, 1.0),
-            release: opts.release.max(0.0),
+            inv_release: opts.release.max(0.0001).recip(),
             state: AdsrState::Inactive,
             amp: 0.0,
         }
+    }
+
+    pub fn set_sample_rate(&mut self, sample_rate: u32) {
+        self.inv_sample_rate = (sample_rate as f32).recip();
     }
 
     pub fn phase(&self) -> AdsrPhase {
@@ -89,7 +95,7 @@ impl AdsrEnvelope {
         match self.state {
             Attack { start, mut t } => {
                 self.amp = start + (1.0 - start) * t;
-                t += self.inv_sample_rate;
+                t += self.inv_attack * self.inv_sample_rate;
                 if t < 1.0 {
                     self.state = Attack { start, t };
                 } else {
@@ -98,7 +104,7 @@ impl AdsrEnvelope {
             }
             Decay { mut t } => {
                 self.amp = 1.0 - t * (1.0 - self.sustain);
-                t += self.inv_sample_rate;
+                t += self.inv_decay * self.inv_sample_rate;
                 if t < 1.0 {
                     self.state = Decay { t };
                 } else {
@@ -108,7 +114,7 @@ impl AdsrEnvelope {
             Sustain => self.amp = self.sustain,
             Release { start, mut t } => {
                 self.amp = start * (1.0 - t);
-                t += self.inv_sample_rate;
+                t += self.inv_release * self.inv_sample_rate;
                 if t < 1.0 {
                     self.state = Release { start, t };
                 } else {

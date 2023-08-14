@@ -1,7 +1,7 @@
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{Processor, ProcessorData};
-use crate::synth::{oscillators, Synth, SynthOpts};
+use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
 use constants::DEFAULT_SAMPLE_RATE;
 use midir::{Ignore, MidiInput};
 use rodio::Source;
@@ -86,9 +86,14 @@ fn main() {
     let source = BlockSource::new(audio_rx);
     std::thread::spawn(move || {
         let mut synth = Synth::new(SynthOpts {
-            sample_rate: DEFAULT_SAMPLE_RATE,
             num_voices: 16,
-            wave: oscillators::tri,
+            voice_opts: VoiceOpts {
+                wave: oscillators::sine,
+                attack: 0.002,
+                decay: 0.002,
+                sustain: 1.0,
+                release: 0.002,
+            },
         });
         'outer: loop {
             let mut events = vec![];
