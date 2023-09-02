@@ -46,6 +46,7 @@ impl Processor for Pipeline {
             component.process(ProcessorData {
                 midi_in: &midi_current,
                 midi_out: &mut midi_next,
+                samples: len,
                 audio_in: &[current_left, current_right],
                 audio_out: &mut [next_left, next_right],
             });
