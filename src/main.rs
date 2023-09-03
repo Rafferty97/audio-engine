@@ -1,10 +1,10 @@
+use crate::audio::ring::RingBuffer;
 use crate::convert::{interleave_stereo, uninterleave_stereo};
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{
     Autopan, Chord, Delay, Gain, Pipeline, Processor, ProcessorData, Saturator,
 };
-use crate::ring::RingBuffer;
 use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamConfig;
@@ -13,11 +13,11 @@ use std::io::{stdin, stdout, Write};
 use std::sync::Mutex;
 use std::time::Duration;
 
+mod audio;
 mod convert;
 mod midi;
 mod note;
 mod processor;
-mod ring;
 mod synth;
 
 fn main() {
@@ -60,27 +60,26 @@ fn main() {
             .unwrap();
     } else {
         println!("No MIDI input ports available.");
-        std::thread::spawn(move || loop {
-            let off = |note: Note| MidiEvent::NoteOff {
-                channel: 0,
-                note,
-                velocity: 0,
-            };
-            let on = |note: Note| MidiEvent::NoteOn {
-                channel: 0,
-                note,
-                velocity: 127,
-            };
-            midi_tx.send(on(Note::middle_c())).ok();
-            std::thread::sleep(Duration::from_millis(250));
-            midi_tx.send(on(Note::middle_c().transpose(4))).ok();
-            std::thread::sleep(Duration::from_millis(250));
-            midi_tx.send(on(Note::middle_c().transpose(7))).ok();
-            std::thread::sleep(Duration::from_millis(500));
-            midi_tx.send(off(Note::middle_c())).ok();
-            midi_tx.send(off(Note::middle_c().transpose(4))).ok();
-            midi_tx.send(off(Note::middle_c().transpose(7))).ok();
-            std::thread::sleep(Duration::from_millis(1000));
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(2000));
+            loop {
+                let off = |note: Note| MidiEvent::NoteOff {
+                    channel: 0,
+                    note,
+                    velocity: 0,
+                };
+                let on = |note: Note| MidiEvent::NoteOn {
+                    channel: 0,
+                    note,
+                    velocity: 127,
+                };
+                for i in [0, 4, 7, 4] {
+                    midi_tx.send(on(Note::middle_c().transpose(i))).ok();
+                    std::thread::sleep(Duration::from_millis(50));
+                    midi_tx.send(off(Note::middle_c().transpose(i))).ok();
+                    std::thread::sleep(Duration::from_millis(450));
+                }
+            }
         });
     }
 
@@ -88,11 +87,11 @@ fn main() {
     let synth = Synth::new(SynthOpts {
         num_voices: 16,
         voice_opts: VoiceOpts {
-            wave: oscillators::sine,
+            wave: oscillators::tri,
             attack: 0.05,
             decay: 0.05,
-            sustain: 1.0,
-            release: 0.05,
+            sustain: 0.8,
+            release: 0.25,
         },
     });
     let mut chord = Chord::new();
@@ -101,24 +100,26 @@ fn main() {
     let mut autopan = Autopan::new(1.0);
     autopan.set_amount(0.2);
     let mut gain = Gain::new();
-    gain.set_gain(6.0);
+    gain.set_gain(-6.0);
     let mut delay = Delay::new();
-    delay.set_delay(0.2);
-    let saturator = Saturator::new(|s| s.abs().powf(0.85) * s.signum());
+    delay.set_delay(0.15);
+    delay.set_feedback(0.6);
+    let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
     let engine = Pipeline::new([
         // Box::new(chord) as Box<dyn Processor + Send>,
         // Box::new(synth) as Box<dyn Processor + Send>,
         Box::new(gain) as Box<dyn Processor + Send>,
-        Box::new(delay) as Box<dyn Processor + Send>,
-        Box::new(saturator) as Box<dyn Processor + Send>,
+        // Box::new(delay) as Box<dyn Processor + Send>,
         // Box::new(autopan) as Box<dyn Processor + Send>,
+        Box::new(saturator) as Box<dyn Processor + Send>,
+        Box::new(delay) as Box<dyn Processor + Send>,
     ]);
     let mut engine: Box<dyn Processor + Send> = Box::new(engine);
 
     // Ring buffer
-    let left_buffer = Mutex::new(RingBuffer::new(2048));
+    let left_buffer = Mutex::new(RingBuffer::new(4096));
     let left_buffer = &*Box::leak(Box::new(left_buffer));
-    let right_buffer = Mutex::new(RingBuffer::new(2048));
+    let right_buffer = Mutex::new(RingBuffer::new(4096));
     let right_buffer = &*Box::leak(Box::new(right_buffer));
 
     // Create the input stream

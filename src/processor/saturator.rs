@@ -1,5 +1,6 @@
 use super::Processor;
 
+#[derive(Clone)]
 pub struct Saturator {
     curve: fn(f32) -> f32,
 }
