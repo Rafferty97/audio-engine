@@ -87,7 +87,7 @@ fn main() {
     let synth = Synth::new(SynthOpts {
         num_voices: 16,
         voice_opts: VoiceOpts {
-            wave: oscillators::tri,
+            wave: oscillators::saw,
             attack: 0.05,
             decay: 0.05,
             sustain: 0.8,
@@ -107,12 +107,12 @@ fn main() {
     let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
     let engine = Pipeline::new([
         // Box::new(chord) as Box<dyn Processor + Send>,
-        // Box::new(synth) as Box<dyn Processor + Send>,
+        Box::new(synth) as Box<dyn Processor + Send>,
         Box::new(gain) as Box<dyn Processor + Send>,
-        // Box::new(delay) as Box<dyn Processor + Send>,
+        Box::new(delay) as Box<dyn Processor + Send>,
         // Box::new(autopan) as Box<dyn Processor + Send>,
         Box::new(saturator) as Box<dyn Processor + Send>,
-        Box::new(delay) as Box<dyn Processor + Send>,
+        // Box::new(delay) as Box<dyn Processor + Send>,
     ]);
     let mut engine: Box<dyn Processor + Send> = Box::new(engine);
 

@@ -72,28 +72,13 @@ impl Processor for Synth {
             }
         }
 
-        adapt_mono(data.audio_out, |left, right| {
-            left.fill(0.0);
-            right.fill(0.0);
-            for voice in &mut self.voices {
-                voice.process(left, right);
-            }
-        })
-    }
-}
-
-/// Allows outputting stereo audio to either a stereo pair of channels, or a single mono buffer.
-fn adapt_mono(buffers: &mut [&mut [f32]], f: impl FnOnce(&mut [f32], &mut [f32])) {
-    match buffers {
-        [] => {}
-        [mono] => {
-            let mut buffer = vec![0.0; 2 * mono.len()]; // FIXME: Don't init
-            let (left, right) = buffer.split_at_mut(mono.len());
-            f(left, right);
-            leftright_to_mono(left, right, mono);
-        }
-        [left, right, ..] => {
-            f(left, right);
+        let [left, right] = data.audio_out else {
+            panic!("Expected two output buffers");
+        };
+        left.fill(0.0);
+        right.fill(0.0);
+        for voice in &mut self.voices {
+            voice.process(left, right);
         }
     }
 }
