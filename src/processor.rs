@@ -10,6 +10,7 @@ mod autopan;
 mod chord;
 mod delay;
 mod gain;
+mod mixer;
 mod pipeline;
 mod saturator;
 
