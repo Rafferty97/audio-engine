@@ -19,10 +19,7 @@ pub struct Delay {
 impl Delay {
     pub fn new() -> Self {
         Self {
-            delay_lines: [
-                DelayLine::new(MAX_DELAY, BATCH_SIZE),
-                DelayLine::new(MAX_DELAY, BATCH_SIZE),
-            ],
+            delay_lines: [DelayLine::new(MAX_DELAY), DelayLine::new(MAX_DELAY)],
             sample_rate: 0.0,
             delay: 0.001,
             feedback: 0.5,

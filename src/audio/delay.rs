@@ -1,14 +1,14 @@
 use super::ring::RingBuffer;
 use rubato::{FastFixedOut, Resampler};
 
+const OUTPUT_SIZE: usize = 32;
+
 pub struct DelayLine {
     /// Inner ring buffer that stores the audio.
     ring: RingBuffer,
     /// Maximum delay value in seconds;
     /// used for calculating the ring buffer size.
     max_delay: f32,
-    /// Number of samples returned in each call to `read` or `read_resample`.
-    output_size: usize,
     /// Sample rate in `Hz`.
     sample_rate: f32,
     /// Current warp in `samples/second`.
@@ -17,23 +17,25 @@ pub struct DelayLine {
     target_delay: usize,
     /// The resampler.
     sampler: FastFixedOut<f32>,
+    /// A small buffer for holding output.
+    output_adapter: FixedOutputAdapter<OUTPUT_SIZE>,
 }
 
 impl DelayLine {
     /// Creates a new delay line with the given window size in seconds.
     /// The backing buffer isn't allocated until the sample rate has been set.
-    pub fn new(max_delay: f32, output_size: usize) -> Self {
+    pub fn new(max_delay: f32) -> Self {
         let sampler =
-            FastFixedOut::new(1.0, 10.0, rubato::PolynomialDegree::Cubic, output_size, 1).unwrap();
+            FastFixedOut::new(1.0, 10.0, rubato::PolynomialDegree::Cubic, OUTPUT_SIZE, 1).unwrap();
 
         Self {
             ring: RingBuffer::new(0),
             max_delay,
-            output_size,
             sample_rate: 0.0,
             warp: 0.0,
             target_delay: 0,
             sampler,
+            output_adapter: FixedOutputAdapter::new(),
         }
     }
 
@@ -58,10 +60,15 @@ impl DelayLine {
 
     /// Reads samples from the ring buffer into `samples`, and advances the read position.
     pub fn read(&mut self, samples: &mut [f32]) {
-        // Ensure output buffer is of the expected size
-        assert_eq!(samples.len(), self.output_size);
+        let mut output = std::mem::take(&mut self.output_adapter);
+        output.fill(samples, |buf| self.read_inner(buf));
+        self.output_adapter = output;
+    }
 
-        self.update_warp(self.output_size);
+    fn read_inner(&mut self, samples: &mut [f32]) {
+        debug_assert!(samples.len() == OUTPUT_SIZE);
+
+        self.update_warp(OUTPUT_SIZE);
 
         // Set the resample ratio for this set of samples
         let ratio = ((self.warp / self.sample_rate) as f64 + 1.0).clamp(0.1, 10.0);
@@ -71,7 +78,7 @@ impl DelayLine {
         // If there are not enough samples available, return silence.
         let input_size = self.sampler.input_frames_next();
         if input_size > self.ring.delay() {
-            samples.fill(0.0);
+            self.output_adapter.write_silence();
             return;
         }
 
@@ -106,5 +113,73 @@ impl DelayLine {
 
         // Apply the acceleration
         self.warp += warp_acc * (samples as f32 / self.sample_rate);
+    }
+}
+
+/// Adapts a function generating fixed-sized blocks (`N`) of samples
+/// into one that outputs variable-sized blocks by using an internal buffer.
+struct FixedOutputAdapter<const N: usize> {
+    /// Sample buffer
+    buffer: [f32; N],
+    /// Index of the first unread sample
+    idx: usize,
+}
+
+impl<const N: usize> Default for FixedOutputAdapter<N> {
+    fn default() -> Self {
+        // An idx of `N` signifies an empty buffer
+        Self {
+            buffer: [0.0; N],
+            idx: N,
+        }
+    }
+}
+
+impl<const N: usize> FixedOutputAdapter<N> {
+    /// Creates a new [`FixedOutputAdapter`].
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Fills `output` by repeatedly calling `factory` and buffering as needed.
+    ///
+    /// # Parameters
+    /// - `output` - The output buffer to write samples to, which can be of any length.
+    /// - `factory` - The function which produces samples, which is passed a buffer of length `N` to be filled.
+    pub fn fill(&mut self, mut output: &mut [f32], mut factory: impl FnMut(&mut [f32])) {
+        loop {
+            // Write samples from the internal buffer to the output buffer
+            let written = self.read(output);
+            output = &mut output[written..];
+
+            // Break when the output buffer is full
+            if output.is_empty() {
+                break;
+            }
+
+            // Fill the internal buffer using the provided function
+            (factory)(&mut self.buffer);
+            self.idx = 0;
+        }
+    }
+
+    /// Copies samples from `buffer` into `output` and returns number written.
+    pub fn read(&mut self, output: &mut [f32]) -> usize {
+        if self.idx >= N {
+            return 0;
+        }
+
+        let idx = self.idx;
+        let next_idx = usize::min(self.idx + output.len(), N);
+        let len = next_idx - self.idx;
+        output[..len].copy_from_slice(&self.buffer[idx..next_idx]);
+        self.idx = next_idx;
+        len
+    }
+
+    /// Fills the internal buffer with silence
+    pub fn write_silence(&mut self) {
+        self.buffer.fill(0.0);
+        self.idx = 0;
     }
 }
