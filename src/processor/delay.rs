@@ -40,7 +40,7 @@ impl Processor for Delay {
         self.sample_rate = sample_rate as f32;
         for line in self.delay_lines.iter_mut() {
             line.set_sample_rate(sample_rate);
-            line.seek(self.delay);
+            line.seek_seconds(self.delay);
         }
     }
 

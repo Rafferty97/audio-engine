@@ -21,7 +21,7 @@ impl RingBuffer {
     }
 
     /// Gets the delay of the read head relative to the write head in samples.
-    pub fn delay(&mut self) -> usize {
+    pub fn delay(&self) -> usize {
         let offset = self.write_idx as isize - self.read_idx as isize;
         offset.rem_euclid(self.buffer.len() as isize) as usize
     }

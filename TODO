@@ -1,0 +1,4 @@
+- Make `Processor` thin wrapper around more native methods on each struct
+- Implement a dry/wet processor that simply wraps a generic mixer processor
+- Implement a mixer
+- Implement a chorus
