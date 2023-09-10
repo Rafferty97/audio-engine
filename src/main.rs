@@ -169,8 +169,8 @@ fn main() {
                 let mut midi_out = Vec::new();
                 let mut left_in = vec![0.0; data.len() / 2];
                 let mut right_in = vec![0.0; data.len() / 2];
-                left_buffer.lock().unwrap().read(&mut left_in);
-                right_buffer.lock().unwrap().read(&mut right_in);
+                left_buffer.lock().unwrap().read(&mut left_in, true);
+                right_buffer.lock().unwrap().read(&mut right_in, true);
                 let mut left_out = vec![0.0; data.len() / 2];
                 let mut right_out = vec![0.0; data.len() / 2];
                 engine.process(ProcessorData {

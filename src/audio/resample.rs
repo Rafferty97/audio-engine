@@ -51,7 +51,7 @@ impl<I: Interpolator> Resampler<I> {
         // Fast path for when no actual resampling is occuring
         if self.x1.fract() == 0.0 && ratio == 1.0 {
             let x1 = self.x1 as usize;
-            samples_out.copy_from_slice(&samples_in[x1..]);
+            samples_out.copy_from_slice(&samples_in[x1..(x1 + samples_out.len())]);
             let offset = samples_out.len() + x1 - I::window();
             self.x1 = I::window() as f32;
             return offset;

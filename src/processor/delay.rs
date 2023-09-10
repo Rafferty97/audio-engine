@@ -45,7 +45,7 @@ impl Processor for Delay {
     }
 
     fn process(&mut self, data: super::ProcessorData) {
-        let len = data.audio_in[0].len();
+        let len = data.samples;
 
         for (idx, line) in self.delay_lines.iter_mut().enumerate() {
             line.set_target_delay(self.delay);

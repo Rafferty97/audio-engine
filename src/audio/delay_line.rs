@@ -19,7 +19,8 @@ pub struct DelayLine {
     target_delay: usize,
     /// Current playback warp, in samples/second.
     /// A positive value causes faster than normal playback, and a negative value slower than normal playback.
-    warp: f32,
+    /// A `None` value indicates that there is no warping as the delay has reached its target value.
+    warp: Option<f32>,
     /// The resampler.
     resampler: Resampler<CubicInterpolator>,
     /// A small buffer for holding output.
@@ -35,7 +36,7 @@ impl DelayLine {
             max_delay,
             sample_rate: 0.0,
             target_delay: 0,
-            warp: 0.0,
+            warp: None,
             resampler: Resampler::new(),
             output_adapter: FixedOutputAdapter::new(),
         }
@@ -60,12 +61,17 @@ impl DelayLine {
         self.target_delay = delay;
         let offset = self.resampler.reset();
         self.ring.seek(delay + offset);
+        self.warp = None;
     }
 
     /// Sets the delay of the read head to be the given number of seconds behind the write head,
     /// which will be smoothly transitioned to be speeding up or slowing down playback of the delayed signal.
     pub fn set_target_delay(&mut self, target_delay: f32) {
-        self.target_delay = (target_delay * self.sample_rate) as usize;
+        let new_target = (target_delay * self.sample_rate) as usize;
+        if self.target_delay != new_target {
+            self.target_delay = new_target;
+            self.warp = self.warp.or(Some(0.0));
+        }
     }
 
     /// Reads samples from the delay line.
@@ -81,7 +87,10 @@ impl DelayLine {
         self.update_warp(OUTPUT_SIZE);
 
         // Set the resample ratio for this set of samples
-        let ratio = (self.warp / self.sample_rate + 1.0).max(0.0);
+        let ratio = self
+            .warp
+            .map(|w| (w / self.sample_rate + 1.0).max(0.0))
+            .unwrap_or(1.0);
 
         // Determine the number of samples to read
         let input_size = self.resampler.next_input_size(OUTPUT_SIZE, ratio);
@@ -94,10 +103,11 @@ impl DelayLine {
 
         // Read samples from the ring buffer into the stack
         let read_buffer = &mut [0.0; 1024][..input_size];
-        self.ring.read(read_buffer);
+        self.ring.read(read_buffer, false);
 
         // Perform the resampling directly into the output buffer
-        self.resampler.resample(read_buffer, samples, ratio);
+        let offset = self.resampler.resample(read_buffer, samples, ratio);
+        self.ring.seek_relative(offset as isize);
     }
 
     /// Write samples into the delay line.
@@ -108,24 +118,30 @@ impl DelayLine {
     /// Updates the warp value using a critically damped oscillator
     /// to bring the actual delay towards the target delay.
     fn update_warp(&mut self, num_samples: usize) {
+        let Some(mut warp) = self.warp else {
+            return;
+        };
+
         // Controls how quickly the delay line repitches to the target delay value
-        let omega = 8.0f32;
+        let omega = 6.0f32;
 
         // Compute the current delay error, in samples
-        let error = self.target_delay as f32 - self.delay_samples();
+        let error = self.delay_samples() - self.target_delay as f32;
 
         // If the error is very small, snap the delay and warp
         if error.abs() < 0.001 {
             self.seek_samples(self.target_delay);
-            self.warp = 0.0;
             return;
         }
 
         // Compute the warp acceleration in samples/seconds^2
-        let warp_acc = omega.powf(2.0) * error - 2.0 * omega * self.warp;
+        let warp_acc = omega.powf(2.0) * error - 2.0 * omega * warp;
 
         // Apply the acceleration
-        self.warp += warp_acc * (num_samples as f32 / self.sample_rate);
+        warp += warp_acc * (num_samples as f32 / self.sample_rate);
+
+        // Update the warp value
+        self.warp = Some(warp);
     }
 
     /// Gets the current delay in samples.

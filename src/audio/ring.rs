@@ -32,8 +32,14 @@ impl RingBuffer {
         self.read_idx = read_idx.rem_euclid(self.buffer.len() as isize) as usize;
     }
 
+    /// Advances the read position by the given number of samples.
+    pub fn seek_relative(&mut self, offset: isize) {
+        let read_idx = self.read_idx as isize + offset;
+        self.read_idx = read_idx.rem_euclid(self.buffer.len() as isize) as usize;
+    }
+
     /// Reads samples from the ring buffer into `samples`, and advances the read position.
-    pub fn read(&mut self, samples: &mut [f32]) {
+    pub fn read(&mut self, samples: &mut [f32], advance: bool) {
         let buf = &self.buffer;
         let i = self.read_idx;
         let j = self.read_idx + samples.len();
@@ -43,11 +49,15 @@ impl RingBuffer {
             // The slice being read wraps around the end of the ring buffer
             samples[..(len - i)].copy_from_slice(&buf[i..]);
             samples[(len - i)..].copy_from_slice(&buf[..(j - len)]);
-            self.read_idx = j - len;
+            if advance {
+                self.read_idx = j - len;
+            }
         } else {
             // The slice being read is contiguous in the ring buffer
             samples.copy_from_slice(&buf[i..j]);
-            self.read_idx = j;
+            if advance {
+                self.read_idx = j;
+            }
         }
     }
 
