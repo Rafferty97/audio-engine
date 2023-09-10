@@ -1,5 +1,5 @@
 use super::Processor;
-use crate::audio::delay::DelayLine;
+use crate::audio::delay_line::DelayLine;
 
 const BATCH_SIZE: usize = 32;
 const MIN_DELAY: f32 = 0.001;

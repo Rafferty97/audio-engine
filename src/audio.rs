@@ -1,2 +1,2 @@
-pub mod delay;
+pub mod delay_line;
 pub mod ring;
