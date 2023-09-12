@@ -1,4 +1,6 @@
 - Make `Processor` thin wrapper around more native methods on each struct
 - Implement a dry/wet processor that simply wraps a generic mixer processor
-- Implement a mixer
 - Implement a chorus
+- Implement the audio engine
+  - Abstraction for slicing up a large buffer into multiple buffers of the same size
+    such that multiple mutable/immutable borrows can be taken at the same time.

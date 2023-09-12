@@ -1,6 +1,6 @@
-use std::f32::consts::PI;
-
 use super::Processor;
+use crate::audio::buffer::{AudioBufferMut, StereoBuffer, StereoBufferMut, StereoChannel};
+use std::f32::consts::PI;
 
 pub struct Autopan {
     inv_sample_rate: f32,
@@ -22,6 +22,28 @@ impl Autopan {
     pub fn set_amount(&mut self, amount: f32) {
         self.amount = amount;
     }
+
+    pub fn process(&mut self, audio_in: StereoBuffer, mut audio_out: StereoBufferMut) {
+        let phase = |n: usize| self.phase + self.frequency * self.inv_sample_rate * (n as f32);
+
+        for channel in StereoChannel::both() {
+            let buffer_in = audio_in.channel(channel);
+            let buffer_out = audio_out.channel_mut(channel);
+            let offset = match channel {
+                StereoChannel::Left => 0.0,
+                StereoChannel::Right => PI,
+            };
+            buffer_out.map(buffer_in, |i, sample| {
+                let sin = (2.0 * PI * phase(i) + offset).sin();
+                sample * (1.0 + self.amount * sin)
+            })
+        }
+
+        self.phase = phase(audio_in.len());
+        while self.phase > 1.0 {
+            self.phase -= 1.0;
+        }
+    }
 }
 
 impl Processor for Autopan {
@@ -30,21 +52,16 @@ impl Processor for Autopan {
     }
 
     fn process(&mut self, data: super::ProcessorData) {
-        let phase = |n: usize| self.phase + self.frequency * self.inv_sample_rate * (n as f32);
+        let [left, right, ..] = data.audio_in else {
+            panic!("Expected at least two input audio buffers");
+        };
+        let audio_in = StereoBuffer::new(*left, *right);
 
-        let buffers = data.audio_in.iter().zip(data.audio_out.iter_mut());
-        for (i, (buffer_in, buffer_out)) in buffers.enumerate() {
-            let samples = buffer_in.iter().zip(buffer_out.iter_mut());
-            let offset = PI * i as f32;
-            for (i, (sample_in, sample_out)) in samples.enumerate() {
-                let sin = (2.0 * PI * phase(i) + offset).sin();
-                *sample_out = *sample_in * (1.0 + self.amount * sin);
-            }
-        }
+        let [left, right, ..] = data.audio_out else {
+            panic!("Expected at least two output audio buffers");
+        };
+        let audio_out = StereoBufferMut::new(*left, *right);
 
-        self.phase = phase(data.audio_in[0].len());
-        while self.phase > 1.0 {
-            self.phase -= 1.0;
-        }
+        self.process(audio_in, audio_out)
     }
 }

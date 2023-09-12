@@ -13,6 +13,7 @@ mod gain;
 mod mixer;
 mod pipeline;
 mod saturator;
+mod util;
 
 pub struct ProcessorData<'a> {
     /// List of input MIDI events

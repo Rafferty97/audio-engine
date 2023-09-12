@@ -37,13 +37,9 @@ impl Chord {
     fn get_mask(&self) -> u128 {
         to_mask(self.notes.iter().map(|n| n.dst))
     }
-}
 
-impl Processor for Chord {
-    fn set_sample_rate(&mut self, _sample_rate: u32) {}
-
-    fn process(&mut self, data: super::ProcessorData) {
-        for &(ts, event) in data.midi_in {
+    pub fn process(&mut self, midi_in: &[(u32, MidiEvent)], midi_out: &mut Vec<(u32, MidiEvent)>) {
+        for &(ts, event) in midi_in {
             match event {
                 MidiEvent::NoteOn {
                     channel,
@@ -60,7 +56,7 @@ impl Processor for Chord {
                     }
                     let next = self.get_mask();
                     diff_masks(prev, next, |note, on| {
-                        data.midi_out.push((
+                        midi_out.push((
                             ts,
                             if on {
                                 MidiEvent::NoteOn {
@@ -83,7 +79,7 @@ impl Processor for Chord {
                     self.notes.retain(|n| n.src != note);
                     let next = self.get_mask();
                     diff_masks(prev, next, |note, on| {
-                        data.midi_out.push((
+                        midi_out.push((
                             ts,
                             if on {
                                 unreachable!()
@@ -97,7 +93,7 @@ impl Processor for Chord {
                         ));
                     });
                 }
-                _ => data.midi_out.push((ts, event)),
+                _ => midi_out.push((ts, event)),
             }
         }
     }
@@ -118,5 +114,13 @@ fn diff_masks(prev: u128, next: u128, mut f: impl FnMut(Note, bool)) {
             (1, 0) => f(Note(i), false),
             _ => {}
         }
+    }
+}
+
+impl Processor for Chord {
+    fn set_sample_rate(&mut self, _sample_rate: u32) {}
+
+    fn process(&mut self, data: super::ProcessorData) {
+        self.process(data.midi_in, data.midi_out)
     }
 }

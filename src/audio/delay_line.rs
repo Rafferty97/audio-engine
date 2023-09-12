@@ -75,9 +75,9 @@ impl DelayLine {
     }
 
     /// Reads samples from the delay line.
-    pub fn read(&mut self, samples: &mut [f32]) {
+    pub fn read(&mut self, audio_out: &mut [f32]) {
         let mut output = std::mem::take(&mut self.output_adapter);
-        output.fill(samples, |buf| self.read_inner(buf));
+        output.fill(audio_out.as_mut(), |buf| self.read_inner(buf));
         self.output_adapter = output;
     }
 

@@ -1,7 +1,7 @@
 use super::Processor;
 use crate::audio::{
+    buffer::{AudioBufferMut, StereoBuffer, StereoBufferMut},
     delay_line::DelayLine,
-    operations::{add_samples, add_scaled_samples, scale_samples},
 };
 
 const BATCH_SIZE: usize = 32;
@@ -52,12 +52,9 @@ impl Delay {
         self.ping_pong = ping_pong;
     }
 
-    pub fn process(&mut self, audio_in: [&[f32]; 2], audio_out: [&mut [f32]; 2]) {
-        let len = audio_in[0].len();
-        debug_assert!(audio_in[0].len() == len);
-        debug_assert!(audio_in[1].len() == len);
-        debug_assert!(audio_out[0].len() == len);
-        debug_assert!(audio_out[1].len() == len);
+    pub fn process(&mut self, audio_in: StereoBuffer, audio_out: StereoBufferMut) {
+        let len = audio_in.len();
+        assert!(audio_in.len() == audio_out.len());
 
         let lines = &mut self.delay_lines;
         lines[0].set_target_delay(self.delay);
@@ -77,24 +74,24 @@ impl Delay {
             lines[1].read(buffers[1]);
 
             // Write output to output buffers
-            audio_out[0][i..j].copy_from_slice(buffers[0]);
-            audio_out[1][i..j].copy_from_slice(buffers[1]);
+            audio_out.left[i..j].copy(&*buffers[0]);
+            audio_out.right[i..j].copy(&*buffers[1]);
 
             // Attenuate the output for feedback
-            scale_samples(buffers[0], self.feedback);
-            scale_samples(buffers[1], self.feedback);
+            buffers[0].scale(self.feedback);
+            buffers[1].scale(self.feedback);
 
             // Combine input and feedback signals, and write to ring buffers
             if self.ping_pong {
                 // Write input only to right channel and swap feedback lines
-                add_scaled_samples(buffers[1], &audio_in[0][i..j], 0.5);
-                add_scaled_samples(buffers[1], &audio_in[1][i..j], 0.5);
+                buffers[1].add_scaled(&audio_in.left[i..j], 0.5);
+                buffers[1].add_scaled(&audio_in.right[i..j], 0.5);
                 lines[0].write(buffers[1]);
                 lines[1].write(buffers[0]);
             } else {
                 // Write input to respective channels and don't swap feedback lines
-                add_samples(buffers[0], &audio_in[0][i..j]);
-                add_samples(buffers[1], &audio_in[1][i..j]);
+                buffers[0].add(&audio_in.left[i..j]);
+                buffers[1].add(&audio_in.right[i..j]);
                 lines[0].write(buffers[0]);
                 lines[1].write(buffers[1]);
             }
@@ -111,9 +108,16 @@ impl Processor for Delay {
     }
 
     fn process(&mut self, data: super::ProcessorData) {
-        let ([in1, in2], [out1, out2]) = (data.audio_in, data.audio_out) else {
-            panic!("Incorrect number of audio buffers passed");
+        let [left, right, ..] = data.audio_in else {
+            panic!("Expected at least two input audio buffers");
         };
-        self.process([in1, in2], [out1, out2]);
+        let audio_in = StereoBuffer::new(*left, *right);
+
+        let [left, right, ..] = data.audio_out else {
+            panic!("Expected at least two output audio buffers");
+        };
+        let audio_out = StereoBufferMut::new(*left, *right);
+
+        self.process(audio_in, audio_out);
     }
 }
