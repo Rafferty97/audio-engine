@@ -1,5 +1,10 @@
-use crate::processor::{
-    AudioInput, AudioOutput, Delay, Mixer, Processor, ProcessorData, Saturator,
+use crate::{
+    midi::TimedMidiEvent,
+    processor::{
+        AudioInput, AudioOutput, Chord, Delay, MidiInput, Mixer, Processor, ProcessorData,
+        Saturator,
+    },
+    synth::{oscillators, Synth, SynthOpts, VoiceOpts},
 };
 use bumpalo::Bump;
 use slotmap::{new_key_type, Key, SecondaryMap, SlotMap};
@@ -16,10 +21,13 @@ new_key_type! {
 pub struct AudioEngine {
     sample_rate: u32,
     devices: SlotMap<DeviceId, Box<dyn Processor>>,
-    inputs: SecondaryMap<DeviceId, Vec<(DeviceId, usize)>>,
-    buffer: Vec<f32>,
-    buffer_map: HashMap<(DeviceId, usize), usize>, // FIXME
-    device_order: Vec<DeviceId>,                   // FIXME
+    audio_inputs: SecondaryMap<DeviceId, Vec<(DeviceId, usize)>>,
+    audio_buffers: Vec<f32>,
+    audio_map: HashMap<(DeviceId, usize), usize>, // FIXME
+    midi_inputs: SecondaryMap<DeviceId, DeviceId>,
+    midi_buffers: Vec<Vec<TimedMidiEvent>>, // FIXME
+    midi_map: HashMap<DeviceId, usize>,     // FIXME
+    device_order: Vec<DeviceId>,            // FIXME
 }
 
 impl AudioEngine {
@@ -27,48 +35,86 @@ impl AudioEngine {
         Self {
             sample_rate: 0,
             devices: SlotMap::with_key(),
-            inputs: SecondaryMap::new(),
-            buffer: vec![],
-            buffer_map: HashMap::new(),
+            audio_inputs: SecondaryMap::new(),
+            audio_buffers: vec![],
+            audio_map: HashMap::new(),
+            midi_inputs: SecondaryMap::new(),
+            midi_buffers: vec![],
+            midi_map: HashMap::new(),
             device_order: vec![],
         }
     }
 
-    pub fn test(&mut self, audio_in: AudioInput, audio_out: AudioOutput) {
+    pub fn test(
+        &mut self,
+        audio_in: AudioInput,
+        audio_out: AudioOutput,
+        midi_in: MidiInput,
+    ) -> DeviceId {
         let audio_in = self.add_device(Box::new(audio_in));
+
+        let midi_in = self.add_device(Box::new(midi_in));
+
+        let mut chord = Chord::new();
+        chord.set_chord(0x1001001);
+        let chord = self.add_device(Box::new(chord));
+
+        let synth = Synth::new(SynthOpts {
+            num_voices: 32,
+            voice_opts: VoiceOpts {
+                attack: 0.2,
+                decay: 0.2,
+                release: 0.2,
+                sustain: 1.0,
+                wave: oscillators::sine,
+            },
+        });
+        let synth = self.add_device(Box::new(synth));
 
         let mut delay = Delay::new();
         delay.set_delay(0.25);
-        delay.set_feedback(0.5);
+        delay.set_feedback(0.9);
         delay.set_ping_pong(true);
         let delay = self.add_device(Box::new(delay));
 
-        let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
+        let saturator = Saturator::new(|s| (2.0 * s).clamp(-1.0, 1.0));
         let saturator = self.add_device(Box::new(saturator));
 
-        let mixer = Mixer::new();
+        let mut mixer = Mixer::new();
+        mixer.set_gain(0, -12.0);
+        mixer.set_gain(2, -12.0);
         let mixer = self.add_device(Box::new(mixer));
 
         let audio_out = self.add_device(Box::new(audio_out));
 
+        self.set_midi_input(midi_in, chord);
+        self.set_midi_input(chord, synth);
         for i in 0..2 {
-            self.set_input(audio_in, i, delay, i);
-            self.set_input(delay, i, saturator, i);
-            self.set_input(saturator, i, mixer, i);
-            self.set_input(audio_in, i, mixer, i + 2);
-            self.set_input(mixer, i, audio_out, i);
+            self.set_audio_input(synth, i, delay, i);
+            self.set_audio_input(delay, i, saturator, i);
+            self.set_audio_input(saturator, i, mixer, i);
+            self.set_audio_input(audio_in, i, mixer, i + 2);
+            self.set_audio_input(synth, i, mixer, i + 4);
+            self.set_audio_input(mixer, i, audio_out, i);
         }
 
-        self.device_order = vec![audio_in, delay, saturator, mixer, audio_out];
-        self.buffer_map.clear();
-        self.buffer_map.insert((audio_in, 0), 1);
-        self.buffer_map.insert((audio_in, 1), 2);
-        self.buffer_map.insert((delay, 0), 3);
-        self.buffer_map.insert((delay, 1), 4);
-        self.buffer_map.insert((saturator, 0), 5);
-        self.buffer_map.insert((saturator, 1), 6);
-        self.buffer_map.insert((mixer, 0), 7);
-        self.buffer_map.insert((mixer, 1), 8);
+        self.device_order = vec![
+            midi_in, chord, synth, audio_in, delay, saturator, mixer, audio_out,
+        ];
+        self.midi_map.insert(midi_in, 0);
+        self.midi_map.insert(chord, 1);
+        self.audio_map.insert((synth, 0), 1);
+        self.audio_map.insert((synth, 1), 2);
+        self.audio_map.insert((audio_in, 0), 3);
+        self.audio_map.insert((audio_in, 1), 4);
+        self.audio_map.insert((delay, 0), 5);
+        self.audio_map.insert((delay, 1), 6);
+        self.audio_map.insert((saturator, 0), 7);
+        self.audio_map.insert((saturator, 1), 8);
+        self.audio_map.insert((mixer, 0), 9);
+        self.audio_map.insert((mixer, 1), 10);
+
+        delay
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: u32) {
@@ -89,7 +135,11 @@ impl AudioEngine {
         self.devices.remove(device_id);
     }
 
-    pub fn set_input(
+    pub fn get_device_mut(&mut self, device_id: DeviceId) -> &mut dyn Processor {
+        self.devices.get_mut(device_id).unwrap().as_mut()
+    }
+
+    pub fn set_audio_input(
         &mut self,
         src_device: DeviceId,
         src_channel: usize,
@@ -97,7 +147,7 @@ impl AudioEngine {
         dst_channel: usize,
     ) {
         let input_map = self
-            .inputs
+            .audio_inputs
             .entry(dst_device)
             .expect("Destination device was removed")
             .or_insert(vec![]);
@@ -107,15 +157,23 @@ impl AudioEngine {
         input_map[dst_channel] = (src_device, src_channel);
     }
 
-    pub fn remove_input(&mut self, dst_device: DeviceId, dst_channel: usize) {
+    pub fn remove_audio_input(&mut self, dst_device: DeviceId, dst_channel: usize) {
         let input_map = self
-            .inputs
+            .audio_inputs
             .entry(dst_device)
             .expect("Destination device was removed")
             .or_insert(vec![]);
         if let Some(slot) = input_map.get_mut(dst_channel) {
             *slot = (DeviceId::null(), 0);
         }
+    }
+
+    pub fn set_midi_input(&mut self, src_device: DeviceId, dst_device: DeviceId) {
+        let input_map = self.midi_inputs.insert(dst_device, src_device);
+    }
+
+    pub fn remove_midi_input(&mut self, dst_device: DeviceId) {
+        self.midi_inputs.remove(dst_device);
     }
 
     pub fn process(&mut self, len: usize) {
@@ -125,10 +183,12 @@ impl AudioEngine {
 
         let mut bump = Bump::new();
 
-        let num_buffers = 10; // FIXME
+        self.midi_buffers.resize_with(16, Vec::new); // FIXME
 
-        self.buffer.resize(num_buffers * len, 0.0);
-        self.buffer[..len].fill(0.0);
+        let num_buffers = 16; // FIXME
+
+        self.audio_buffers.resize(num_buffers * len, 0.0);
+        self.audio_buffers[..len].fill(0.0);
 
         let mut midi_out = vec![];
 
@@ -142,34 +202,48 @@ impl AudioEngine {
             let descr = device.description();
 
             // Prepare audio buffers
-            let inputs = self.inputs.get(device_id).map(|i| &i[..]).unwrap_or(&[]);
+            let inputs = self
+                .audio_inputs
+                .get(device_id)
+                .map(|i| &i[..])
+                .unwrap_or(&[]);
             let num_inputs = inputs.len().clamp(descr.min_audio_ins, descr.max_audio_ins);
             let num_outputs = descr.num_audio_outs;
             let (audio_in, audio_out) = borrow_buffers(
-                &mut self.buffer,
+                &mut self.audio_buffers,
                 len,
                 (0..num_inputs).map(|ch| {
                     inputs
                         .get(ch)
-                        .and_then(|i| self.buffer_map.get(i))
+                        .and_then(|i| self.audio_map.get(i))
                         .copied()
                         .unwrap_or(0)
                 }),
                 (0..num_outputs)
-                    .map(|ch| self.buffer_map.get(&(device_id, ch)).copied().unwrap_or(0)),
+                    .map(|ch| self.audio_map.get(&(device_id, ch)).copied().unwrap_or(0)),
                 &bump,
             );
 
-            // Prepare MIDI output
+            // Prepare MIDI buffers
+            let midi_in = self
+                .midi_inputs
+                .get(device_id)
+                .and_then(|i| self.midi_map.get(i))
+                .map(|idx| &self.midi_buffers[*idx][..])
+                .unwrap_or(&[]);
             midi_out.clear();
 
             device.process(ProcessorData {
-                midi_in: &[],
+                midi_in,
                 midi_out: &mut midi_out,
                 samples: len,
                 audio_in,
                 audio_out,
-            })
+            });
+
+            if let Some(idx) = self.midi_map.get(&device_id) {
+                std::mem::swap(&mut self.midi_buffers[*idx], &mut midi_out);
+            }
         }
     }
 }

@@ -1,9 +1,48 @@
 use super::Processor;
-use crate::convert::{interleave_stereo, uninterleave_stereo};
+use crate::{
+    convert::{interleave_stereo, uninterleave_stereo},
+    midi::{MidiEvent, TimedMidiEvent},
+};
 use basedrop::Handle;
 use cpal::{traits::DeviceTrait, Device, Stream, StreamConfig};
 use ringbuf_basedrop as ringbuf;
 use std::sync::mpsc;
+
+pub struct MidiInput {
+    channel: mpsc::Receiver<MidiEvent>,
+}
+
+impl MidiInput {
+    pub fn new() -> (Self, Box<dyn Fn(MidiEvent) + Send>) {
+        let (tx, rx) = mpsc::channel();
+        (
+            Self { channel: rx },
+            Box::new(move |ev| {
+                tx.send(ev).ok();
+            }),
+        )
+    }
+}
+
+impl Processor for MidiInput {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 0,
+            max_audio_ins: 0,
+            num_audio_outs: 0,
+        }
+    }
+
+    fn set_sample_rate(&mut self, _sample_rate: u32) {
+        // Nothing to do
+    }
+
+    fn process(&mut self, data: super::ProcessorData) {
+        while let Ok(event) = self.channel.try_recv() {
+            data.midi_out.push(TimedMidiEvent { time: 0, event });
+        }
+    }
+}
 
 pub struct AudioOutput {
     channel: ringbuf::Producer<f32>,
@@ -12,7 +51,7 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
-    pub fn new(
+    pub fn from_cpal(
         device: Device,
         config: &StreamConfig,
         buffer_size: usize,
@@ -81,7 +120,7 @@ pub struct AudioInput {
 }
 
 impl AudioInput {
-    pub fn new(
+    pub fn from_cpal(
         device: Device,
         config: &StreamConfig,
         buffer_size: usize,

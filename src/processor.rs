@@ -1,9 +1,9 @@
-use crate::midi::MidiEvent;
+use crate::midi::TimedMidiEvent;
 pub use autopan::Autopan;
 pub use chord::Chord;
 pub use delay::Delay;
 pub use gain::Gain;
-pub use io::{AudioInput, AudioOutput};
+pub use io::{AudioInput, AudioOutput, MidiInput};
 pub use mixer::Mixer;
 pub use pipeline::Pipeline;
 pub use saturator::Saturator;
@@ -20,9 +20,9 @@ mod util;
 
 pub struct ProcessorData<'a> {
     /// List of input MIDI events
-    pub midi_in: &'a [(u32, MidiEvent)],
+    pub midi_in: &'a [TimedMidiEvent],
     /// List of output MIDI events
-    pub midi_out: &'a mut Vec<(u32, MidiEvent)>,
+    pub midi_out: &'a mut Vec<TimedMidiEvent>,
     /// Number of samples in each audio block
     pub samples: usize,
     /// List of input audio blocks
@@ -38,8 +38,17 @@ pub struct ProcessorDescription {
     pub num_audio_outs: usize,
 }
 
-pub trait Processor {
+pub trait Processor: std::any::Any {
+    /// Gets information about the processor.
     fn description(&self) -> ProcessorDescription;
-    fn set_sample_rate(&mut self, sample_rate: u32);
+
+    /// Provides the audio sample rate to the processor.
+    /// This must be called before calling `process` or that method may panic.
+    fn set_sample_rate(&mut self, sample_rate: u32) {}
+
+    /// Sets the value of an automatable parameter.
+    fn set_parameter(&mut self, param_id: usize, value: f32) {}
+
+    /// Processes a batch of MIDI and audio data.
     fn process(&mut self, data: ProcessorData);
 }

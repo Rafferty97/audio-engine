@@ -115,16 +115,24 @@ impl Processor for Delay {
         self.set_sample_rate(sample_rate);
     }
 
+    fn set_parameter(&mut self, param_id: usize, value: f32) {
+        match param_id {
+            0 => self.set_delay(value),
+            1 => self.set_feedback(value),
+            _ => {}
+        }
+    }
+
     fn process(&mut self, data: super::ProcessorData) {
         let [left, right, ..] = data.audio_in else {
             panic!("Expected at least two input audio buffers");
         };
-        let audio_in = StereoBuffer::new(*left, *right);
+        let audio_in = StereoBuffer::new(left, right);
 
         let [left, right, ..] = data.audio_out else {
             panic!("Expected at least two output audio buffers");
         };
-        let audio_out = StereoBufferMut::new(*left, *right);
+        let audio_out = StereoBufferMut::new(left, right);
 
         self.process(audio_in, audio_out);
     }

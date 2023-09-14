@@ -1,5 +1,8 @@
 use super::Processor;
-use crate::{midi::MidiEvent, note::Note};
+use crate::{
+    midi::{MidiEvent, TimedMidiEvent},
+    note::Note,
+};
 
 pub struct Chord {
     channel: u8,
@@ -38,8 +41,8 @@ impl Chord {
         to_mask(self.notes.iter().map(|n| n.dst))
     }
 
-    pub fn process(&mut self, midi_in: &[(u32, MidiEvent)], midi_out: &mut Vec<(u32, MidiEvent)>) {
-        for &(ts, event) in midi_in {
+    pub fn process(&mut self, midi_in: &[TimedMidiEvent], midi_out: &mut Vec<TimedMidiEvent>) {
+        for &TimedMidiEvent { time, event } in midi_in {
             match event {
                 MidiEvent::NoteOn {
                     channel,
@@ -56,9 +59,9 @@ impl Chord {
                     }
                     let next = self.get_mask();
                     diff_masks(prev, next, |note, on| {
-                        midi_out.push((
-                            ts,
-                            if on {
+                        midi_out.push(TimedMidiEvent {
+                            time,
+                            event: if on {
                                 MidiEvent::NoteOn {
                                     channel,
                                     note,
@@ -71,7 +74,7 @@ impl Chord {
                                     velocity: 0,
                                 }
                             },
-                        ));
+                        });
                     });
                 }
                 MidiEvent::NoteOff { channel, note, .. } if channel == self.channel => {
@@ -79,9 +82,9 @@ impl Chord {
                     self.notes.retain(|n| n.src != note);
                     let next = self.get_mask();
                     diff_masks(prev, next, |note, on| {
-                        midi_out.push((
-                            ts,
-                            if on {
+                        midi_out.push(TimedMidiEvent {
+                            time,
+                            event: if on {
                                 unreachable!()
                             } else {
                                 MidiEvent::NoteOff {
@@ -90,10 +93,10 @@ impl Chord {
                                     velocity: 0,
                                 }
                             },
-                        ));
+                        });
                     });
                 }
-                _ => midi_out.push((ts, event)),
+                _ => midi_out.push(TimedMidiEvent { time, event }),
             }
         }
     }

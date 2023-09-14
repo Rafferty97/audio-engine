@@ -1,8 +1,7 @@
 use self::voice::Voice;
 pub use self::voice::VoiceOpts;
 use crate::{
-    convert::leftright_to_mono,
-    midi::MidiEvent,
+    midi::{MidiEvent, TimedMidiEvent},
     processor::{Processor, ProcessorData, ProcessorDescription},
 };
 
@@ -53,7 +52,7 @@ impl Processor for Synth {
     }
 
     fn process(&mut self, data: ProcessorData) {
-        for (_, event) in data.midi_in {
+        for TimedMidiEvent { event, .. } in data.midi_in {
             match event {
                 MidiEvent::NoteOn { note, velocity, .. } => {
                     let voice = self

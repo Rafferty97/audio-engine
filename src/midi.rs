@@ -1,6 +1,12 @@
 use crate::note::Note;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct TimedMidiEvent {
+    pub time: u32,
+    pub event: MidiEvent,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum MidiEvent {
     NoteOn {
         channel: u8,
