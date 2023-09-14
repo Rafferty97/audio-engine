@@ -15,11 +15,15 @@ impl Mixer {
         }
     }
 
+    pub fn set_gain(&mut self, input_idx: usize, gain: f32) {
+        self.gains[input_idx] = 10.0f32.powf(gain / 20.0);
+    }
+
     pub fn process(&mut self, audio_in: &[&[f32]], mut audio_out: StereoBufferMut) {
         audio_out.clear();
         for (idx, buffers) in audio_in.chunks_exact(2).enumerate() {
             audio_out.left.add_scaled(buffers[0], self.gains[idx]);
-            audio_out.left.add_scaled(buffers[1], self.gains[idx]);
+            audio_out.right.add_scaled(buffers[1], self.gains[idx]);
         }
     }
 }
