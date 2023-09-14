@@ -118,6 +118,14 @@ fn diff_masks(prev: u128, next: u128, mut f: impl FnMut(Note, bool)) {
 }
 
 impl Processor for Chord {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 0,
+            max_audio_ins: 0,
+            num_audio_outs: 0,
+        }
+    }
+
     fn set_sample_rate(&mut self, _sample_rate: u32) {}
 
     fn process(&mut self, data: super::ProcessorData) {

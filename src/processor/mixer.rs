@@ -1,7 +1,7 @@
 use super::Processor;
 use crate::audio::buffer::{AudioBufferMut, StereoBufferMut};
 
-const MAX_INPUTS: usize = 32;
+const MAX_INPUTS: usize = 128;
 
 pub struct Mixer {
     /// The gain factors for each input channel
@@ -25,12 +25,20 @@ impl Mixer {
 }
 
 impl Processor for Mixer {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 0,
+            max_audio_ins: 2 * MAX_INPUTS,
+            num_audio_outs: 2,
+        }
+    }
+
     fn set_sample_rate(&mut self, _sample_rate: u32) {
         // Nothing to do
     }
 
     fn process(&mut self, data: super::ProcessorData) {
-        if data.audio_in.len() > MAX_INPUTS {
+        if data.audio_in.len() > 2 * MAX_INPUTS {
             panic!("Too many input audio buffers");
         }
 

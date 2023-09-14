@@ -16,6 +16,14 @@ impl Pipeline {
 }
 
 impl Processor for Pipeline {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 0,
+            max_audio_ins: 2,
+            num_audio_outs: 2,
+        }
+    }
+
     fn set_sample_rate(&mut self, sample_rate: u32) {
         for component in &mut self.components {
             component.set_sample_rate(sample_rate);
@@ -24,7 +32,7 @@ impl Processor for Pipeline {
 
     fn process(&mut self, data: ProcessorData) {
         // Ensure buffer is large enough
-        let len = data.audio_out[0].len();
+        let len = data.samples;
         self.buffer.resize(4 * len, 0.0);
 
         // Split buffer into two stereo pairs for double buffering

@@ -1,34 +1,31 @@
-use crate::audio::ring::RingBuffer;
-use crate::convert::{interleave_stereo, uninterleave_stereo};
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::{
-    Autopan, Chord, Delay, Gain, Pipeline, Processor, ProcessorData, Saturator,
+    AudioOutput, Autopan, Chord, Delay, Gain, Pipeline, Processor, ProcessorData, Saturator,
 };
 use crate::synth::{oscillators, Synth, SynthOpts, VoiceOpts};
+use basedrop::Collector;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::StreamConfig;
 use midir::{Ignore, MidiInput};
-use std::io::{stdin, stdout, Write};
-use std::sync::Mutex;
+use processor::AudioInput;
+use std::io::{stdout, Write};
 use std::time::Duration;
 
 mod audio;
 mod convert;
+mod engine;
 mod midi;
 mod note;
 mod processor;
 mod synth;
 
 fn main() {
-    // Set up the MIDI input interface.
+    // Set up the MIDI input interface
     let mut midi_in = MidiInput::new("MIDI input").unwrap();
     midi_in.ignore(Ignore::ActiveSense);
 
-    // MIDI channel
+    // Get or generate MIDI input
     let (midi_tx, midi_rx) = std::sync::mpsc::channel::<MidiEvent>();
-
-    // List available input ports.
     let in_ports = midi_in.ports();
     let _connection;
     if !in_ports.is_empty() {
@@ -83,7 +80,25 @@ fn main() {
         });
     }
 
-    // Create the audio engine
+    // Create a collector
+    let collector = Collector::new();
+
+    // Create the input stream
+    let host = cpal::default_host();
+    let device = host.default_input_device().unwrap();
+    let config = device.default_input_config().unwrap();
+    let (audio_in, stream) = AudioInput::new(device, &config.into(), 2048, &collector.handle());
+    stream.play().unwrap();
+
+    // Create the output stream
+    let host = cpal::default_host();
+    let device = host.default_output_device().unwrap();
+    let config = device.default_output_config().unwrap();
+    let sample_rate = config.sample_rate();
+    let (audio_out, stream) = AudioOutput::new(device, &config.into(), 2048, &collector.handle());
+    stream.play().unwrap();
+
+    // Create the audio processors
     let synth = Synth::new(SynthOpts {
         num_voices: 16,
         voice_opts: VoiceOpts {
@@ -94,106 +109,55 @@ fn main() {
             release: 0.25,
         },
     });
+
     let mut chord = Chord::new();
     // chord.set_chord(0b10001001);
     chord.set_chord(0x10010001);
-    let mut autopan = Autopan::new(1.0);
-    autopan.set_amount(0.2);
+
+    let mut autopan = Autopan::new();
+    autopan.set_frequency(2.0);
+    autopan.set_amount(1.8);
+
     let mut gain = Gain::new();
-    gain.set_gain(-6.0);
+    gain.set_gain(-9.0);
+
     let mut delay = Delay::new();
-    delay.set_delay(0.15);
-    delay.set_feedback(0.6);
+    delay.set_delay(0.125);
+    delay.set_feedback(0.75);
+    delay.set_ping_pong(true);
+
     let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
-    let engine = Pipeline::new([
+
+    // Create the audio engine
+    let mut engine = Pipeline::new([
+        // Box::new(synth) as Box<dyn Processor + Send>,
         // Box::new(chord) as Box<dyn Processor + Send>,
-        Box::new(synth) as Box<dyn Processor + Send>,
+        Box::new(audio_in) as Box<dyn Processor + Send>,
         Box::new(gain) as Box<dyn Processor + Send>,
         Box::new(delay) as Box<dyn Processor + Send>,
         // Box::new(autopan) as Box<dyn Processor + Send>,
         Box::new(saturator) as Box<dyn Processor + Send>,
-        // Box::new(delay) as Box<dyn Processor + Send>,
+        Box::new(audio_out) as Box<dyn Processor + Send>,
     ]);
-    let mut engine: Box<dyn Processor + Send> = Box::new(engine);
-
-    // Ring buffer
-    let left_buffer = Mutex::new(RingBuffer::new(4096));
-    let left_buffer = &*Box::leak(Box::new(left_buffer));
-    let right_buffer = Mutex::new(RingBuffer::new(4096));
-    let right_buffer = &*Box::leak(Box::new(right_buffer));
-
-    // Create the input stream
-    let host = cpal::default_host();
-    let device = host.default_input_device().unwrap();
-    let config = device.default_input_config().unwrap();
-    let stream = device
-        .build_input_stream(
-            &config.into(),
-            move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                // Handle audio data here.
-                let mut left = vec![0.0; data.len() / 2];
-                let mut right = vec![0.0; data.len() / 2];
-                uninterleave_stereo(data, &mut left, &mut right);
-                left_buffer.lock().unwrap().write(&left);
-                right_buffer.lock().unwrap().write(&right);
-            },
-            move |err| {
-                eprintln!("an error occurred on stream: {}", err);
-            },
-            None,
-        )
-        .unwrap();
-    stream.play().unwrap();
-
-    // Create the output stream
-    let host = cpal::default_host();
-    let device = host.default_output_device().unwrap();
-    let config = device.default_output_config().unwrap();
-    let config = StreamConfig {
-        buffer_size: cpal::BufferSize::Fixed(256),
-        channels: 2,
-        sample_rate: config.sample_rate(),
-    };
 
     // Configure the audio engine
-    engine.set_sample_rate(config.sample_rate.0);
+    engine.set_sample_rate(sample_rate.0);
 
-    let stream = device
-        .build_output_stream(
-            &config,
-            move |data: &mut [f32], _| {
-                let mut events = vec![];
-                while let Ok(event) = midi_rx.try_recv() {
-                    events.push((0, event));
-                }
-                let mut midi_out = Vec::new();
-                let mut left_in = vec![0.0; data.len() / 2];
-                let mut right_in = vec![0.0; data.len() / 2];
-                left_buffer.lock().unwrap().read(&mut left_in, true);
-                right_buffer.lock().unwrap().read(&mut right_in, true);
-                let mut left_out = vec![0.0; data.len() / 2];
-                let mut right_out = vec![0.0; data.len() / 2];
-                engine.process(ProcessorData {
-                    midi_in: &events,
-                    midi_out: &mut midi_out,
-                    samples: left_in.len(),
-                    audio_in: &[&left_in, &right_in],
-                    audio_out: &mut [&mut left_out, &mut right_out],
-                });
-                // Turn mono into stereo
-                interleave_stereo(&left_out, &right_out, data);
-            },
-            |err| {
-                eprintln!("{:?}", err);
-            },
-            None,
-        )
-        .unwrap();
-
-    stream.play().unwrap();
-
-    // Keep the program running.
-    println!("Press Enter to exit...");
-    let mut input = String::new();
-    stdin().read_line(&mut input).unwrap();
+    // Processing loop
+    loop {
+        let mut events = vec![];
+        while let Ok(event) = midi_rx.try_recv() {
+            events.push((0, event));
+        }
+        let mut midi_out = Vec::new();
+        let mut left_out = [0.0; 256];
+        let mut right_out = [0.0; 256];
+        engine.process(ProcessorData {
+            midi_in: &events,
+            midi_out: &mut midi_out,
+            samples: left_out.len(),
+            audio_in: &[],
+            audio_out: &mut [&mut left_out, &mut right_out],
+        });
+    }
 }

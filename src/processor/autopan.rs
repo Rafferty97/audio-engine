@@ -10,13 +10,17 @@ pub struct Autopan {
 }
 
 impl Autopan {
-    pub fn new(frequency: f32) -> Self {
+    pub fn new() -> Self {
         Self {
             inv_sample_rate: 0.0,
-            frequency,
+            frequency: 0.0,
             phase: 0.0,
             amount: 1.0,
         }
+    }
+
+    pub fn set_frequency(&mut self, frequency: f32) {
+        self.frequency = frequency;
     }
 
     pub fn set_amount(&mut self, amount: f32) {
@@ -47,6 +51,14 @@ impl Autopan {
 }
 
 impl Processor for Autopan {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 2,
+            max_audio_ins: 2,
+            num_audio_outs: 2,
+        }
+    }
+
     fn set_sample_rate(&mut self, sample_rate: u32) {
         self.inv_sample_rate = (sample_rate as f32).recip();
     }

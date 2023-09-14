@@ -103,6 +103,14 @@ impl Delay {
 }
 
 impl Processor for Delay {
+    fn description(&self) -> super::ProcessorDescription {
+        super::ProcessorDescription {
+            min_audio_ins: 2,
+            max_audio_ins: 2,
+            num_audio_outs: 2,
+        }
+    }
+
     fn set_sample_rate(&mut self, sample_rate: u32) {
         self.set_sample_rate(sample_rate);
     }

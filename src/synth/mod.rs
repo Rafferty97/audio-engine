@@ -3,7 +3,7 @@ pub use self::voice::VoiceOpts;
 use crate::{
     convert::leftright_to_mono,
     midi::MidiEvent,
-    processor::{Processor, ProcessorData},
+    processor::{Processor, ProcessorData, ProcessorDescription},
 };
 
 mod envelope;
@@ -38,6 +38,14 @@ impl Synth {
 impl Synth {}
 
 impl Processor for Synth {
+    fn description(&self) -> ProcessorDescription {
+        ProcessorDescription {
+            min_audio_ins: 0,
+            max_audio_ins: 0,
+            num_audio_outs: 2,
+        }
+    }
+
     fn set_sample_rate(&mut self, sample_rate: u32) {
         for voice in &mut self.voices {
             voice.set_sample_rate(sample_rate);
