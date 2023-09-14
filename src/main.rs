@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::AudioOutput;

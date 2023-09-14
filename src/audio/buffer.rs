@@ -91,7 +91,7 @@ impl<'a> MonoBuffer<'a> {
     }
 
     pub fn channel(&self) -> &[f32] {
-        &self.channel
+        self.channel
     }
 }
 
@@ -169,7 +169,7 @@ impl<'a> StereoBufferMut<'a> {
     }
 
     pub fn as_ref(&'a self) -> StereoBuffer<'a> {
-        StereoBuffer::new(self.left.as_ref(), self.right.as_ref())
+        StereoBuffer::new(self.left, self.right)
     }
 
     pub fn clear(&mut self) {

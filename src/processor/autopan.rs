@@ -67,12 +67,12 @@ impl Processor for Autopan {
         let [left, right, ..] = data.audio_in else {
             panic!("Expected at least two input audio buffers");
         };
-        let audio_in = StereoBuffer::new(*left, *right);
+        let audio_in = StereoBuffer::new(left, right);
 
         let [left, right, ..] = data.audio_out else {
             panic!("Expected at least two output audio buffers");
         };
-        let audio_out = StereoBufferMut::new(*left, *right);
+        let audio_out = StereoBufferMut::new(left, right);
 
         self.process(audio_in, audio_out)
     }
