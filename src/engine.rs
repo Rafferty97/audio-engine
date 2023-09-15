@@ -56,15 +56,15 @@ impl AudioEngine {
         let midi_in = self.add_device(Box::new(midi_in));
 
         let mut chord = Chord::new();
-        chord.set_chord(0x1001001);
+        // chord.set_chord(0x1001001);
         let chord = self.add_device(Box::new(chord));
 
         let synth = Synth::new(SynthOpts {
             num_voices: 32,
             voice_opts: VoiceOpts {
-                attack: 0.2,
+                attack: 0.1,
                 decay: 0.2,
-                release: 0.2,
+                release: 0.1,
                 sustain: 1.0,
                 wave: oscillators::sine,
             },
@@ -72,9 +72,9 @@ impl AudioEngine {
         let synth = self.add_device(Box::new(synth));
 
         let mut delay = Delay::new();
-        delay.set_delay(0.25);
-        delay.set_feedback(0.9);
-        delay.set_ping_pong(true);
+        delay.set_delay(0.005);
+        delay.set_feedback(0.0);
+        delay.set_ping_pong(false);
         let delay = self.add_device(Box::new(delay));
 
         let saturator = Saturator::new(|s| (2.0 * s).clamp(-1.0, 1.0));
@@ -82,6 +82,7 @@ impl AudioEngine {
 
         let mut mixer = Mixer::new();
         mixer.set_gain(0, -12.0);
+        mixer.set_gain(1, -12.0);
         mixer.set_gain(2, -12.0);
         let mixer = self.add_device(Box::new(mixer));
 
@@ -91,8 +92,8 @@ impl AudioEngine {
         self.set_midi_input(chord, synth);
         for i in 0..2 {
             self.set_audio_input(synth, i, delay, i);
-            self.set_audio_input(delay, i, saturator, i);
-            self.set_audio_input(saturator, i, mixer, i);
+            self.set_audio_input(delay, i, mixer, i);
+            // self.set_audio_input(saturator, i, mixer, i);
             self.set_audio_input(audio_in, i, mixer, i + 2);
             self.set_audio_input(synth, i, mixer, i + 4);
             self.set_audio_input(mixer, i, audio_out, i);

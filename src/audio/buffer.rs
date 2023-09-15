@@ -172,6 +172,7 @@ impl<'a> StereoBufferMut<'a> {
         StereoBuffer::new(self.left, self.right)
     }
 
+    /// Fills all buffers with silence.
     pub fn clear(&mut self) {
         self.left.clear();
         self.right.clear();

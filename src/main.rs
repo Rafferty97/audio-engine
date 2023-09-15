@@ -55,12 +55,12 @@ fn main() {
     loop {
         engine.process(256);
 
-        i += 256;
-        if i > 4 * sample_rate.0 {
-            d = 0.6 - d;
-            engine.get_device_mut(delay).set_parameter(0, d);
-            i = 0;
-        }
+        // i += 256;
+        // if i > 4 * sample_rate.0 {
+        //     d = 0.6 - d;
+        //     engine.get_device_mut(delay).set_parameter(0, d);
+        //     i = 0;
+        // }
     }
 }
 
@@ -69,7 +69,6 @@ fn start_midi(tx: Box<dyn Fn(MidiEvent) + Send>) {
     midi_in.ignore(midir::Ignore::ActiveSense);
     let in_ports = midi_in.ports();
 
-    let _connection;
     if !in_ports.is_empty() {
         // Create a callback to handle incoming MIDI messages
         let callback = move |_, message: &[u8], _: &mut ()| {
@@ -81,9 +80,10 @@ fn start_midi(tx: Box<dyn Fn(MidiEvent) + Send>) {
         };
 
         // Connect to the selected MIDI input port
-        _connection = midi_in
+        let c = midi_in
             .connect(&in_ports[0], "midi-read-connection", callback, ())
             .unwrap();
+        Box::leak(Box::new(c));
     } else {
         println!("No MIDI input ports available.");
         std::thread::spawn(move || {
