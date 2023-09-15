@@ -33,7 +33,7 @@ pub struct ProcessorData<'a> {
     pub audio_out: &'a mut [&'a mut [f32]],
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ProcessorDescription {
     pub min_audio_ins: usize,
     pub max_audio_ins: usize,

@@ -22,9 +22,11 @@ pub struct AudioEngine {
     sample_rate: u32,
     devices: SlotMap<DeviceId, Box<dyn Processor>>,
     audio_inputs: SecondaryMap<DeviceId, Vec<(DeviceId, usize)>>,
+    audio_buffer_cnt: usize, // FIXME
     audio_buffers: Vec<f32>,
     audio_map: HashMap<(DeviceId, usize), usize>, // FIXME
     midi_inputs: SecondaryMap<DeviceId, DeviceId>,
+    midi_buffer_cnt: usize,                 // FIXME
     midi_buffers: Vec<Vec<TimedMidiEvent>>, // FIXME
     midi_map: HashMap<DeviceId, usize>,     // FIXME
     device_order: Vec<DeviceId>,            // FIXME
@@ -36,8 +38,10 @@ impl AudioEngine {
             sample_rate: 0,
             devices: SlotMap::with_key(),
             audio_inputs: SecondaryMap::new(),
+            audio_buffer_cnt: 0,
             audio_buffers: vec![],
             audio_map: HashMap::new(),
+            midi_buffer_cnt: 0,
             midi_inputs: SecondaryMap::new(),
             midi_buffers: vec![],
             midi_map: HashMap::new(),
@@ -100,22 +104,6 @@ impl AudioEngine {
             self.set_audio_input(saturator, i, audio_out, i);
         }
 
-        self.device_order = vec![
-            audio_in, midi_in, chord, synth, filter, saturator, audio_out,
-        ];
-        self.midi_map.insert(midi_in, 0);
-        self.midi_map.insert(chord, 1);
-        self.audio_map.insert((synth, 0), 1);
-        self.audio_map.insert((synth, 1), 2);
-        self.audio_map.insert((audio_in, 0), 3);
-        self.audio_map.insert((audio_in, 1), 4);
-        self.audio_map.insert((filter, 0), 5);
-        self.audio_map.insert((filter, 1), 6);
-        self.audio_map.insert((saturator, 0), 7);
-        self.audio_map.insert((saturator, 1), 8);
-        self.audio_map.insert((mixer, 0), 9);
-        self.audio_map.insert((mixer, 1), 10);
-
         delay
     }
 
@@ -135,6 +123,8 @@ impl AudioEngine {
 
     pub fn remove_device(&mut self, device_id: DeviceId) {
         self.devices.remove(device_id);
+
+        self.reconcile_graph();
     }
 
     pub fn get_device_mut(&mut self, device_id: DeviceId) -> &mut dyn Processor {
@@ -157,6 +147,8 @@ impl AudioEngine {
             input_map.resize(dst_channel + 1, (DeviceId::null(), 0));
         }
         input_map[dst_channel] = (src_device, src_channel);
+
+        self.reconcile_graph();
     }
 
     pub fn remove_audio_input(&mut self, dst_device: DeviceId, dst_channel: usize) {
@@ -168,14 +160,20 @@ impl AudioEngine {
         if let Some(slot) = input_map.get_mut(dst_channel) {
             *slot = (DeviceId::null(), 0);
         }
+
+        self.reconcile_graph();
     }
 
     pub fn set_midi_input(&mut self, src_device: DeviceId, dst_device: DeviceId) {
         let input_map = self.midi_inputs.insert(dst_device, src_device);
+
+        self.reconcile_graph();
     }
 
     pub fn remove_midi_input(&mut self, dst_device: DeviceId) {
         self.midi_inputs.remove(dst_device);
+
+        self.reconcile_graph();
     }
 
     pub fn process(&mut self, len: usize) {
@@ -248,6 +246,50 @@ impl AudioEngine {
             }
         }
     }
+
+    fn reconcile_graph(&mut self) {
+        self.device_order.clear();
+        self.audio_map.clear();
+
+        // Figure out how many times each output channel is used
+        let mut output_map = HashMap::new();
+        for (dst_device, inputs) in &self.audio_inputs {
+            for (dst_channel, src) in inputs.iter().enumerate() {
+                *output_map.entry((dst_device, dst_channel)).or_insert(0) += 1;
+            }
+        }
+
+        // Manages buffer allocation
+        let mut audio_allocs = BufferAllocator::new();
+
+        // Process devices
+        let mut devices_left: Vec<_> = self.devices.iter().collect();
+
+        while !devices_left.is_empty() {
+            let idx = devices_left
+                .iter()
+                .position(|&(id, _)| {
+                    self.audio_inputs
+                        .get(id)
+                        .map(|inputs| {
+                            inputs
+                                .iter()
+                                .all(|&i| i.0.is_null() || audio_allocs.contains(i))
+                        })
+                        .unwrap_or(true)
+                })
+                .unwrap();
+            let (device_id, device) = devices_left.swap_remove(idx);
+            let descr = device.description();
+            self.device_order.push(device_id);
+            for ch in 0..descr.num_audio_outs {
+                let key = (device_id, ch);
+                let uses = output_map.get(&key).copied().unwrap_or(0);
+                let buf_idx = audio_allocs.allocate(key, uses);
+                self.audio_map.insert(key, buf_idx);
+            }
+        }
+    }
 }
 
 /// Borrows slices from a "master" buffer for audio input and output based on specified indices.
@@ -316,4 +358,29 @@ fn assert_index_valid(idx: usize, max_buffers: usize, borrow_mask: &mut u64, mut
     }
     // Mark this buffer as borrowed
     *borrow_mask |= 1 << idx;
+}
+
+struct BufferAllocator<K: Eq> {
+    buffers: Vec<(K, usize)>,
+}
+
+impl<K: Eq> BufferAllocator<K> {
+    pub fn new() -> Self {
+        Self { buffers: vec![] }
+    }
+
+    pub fn allocate(&mut self, key: K, uses: usize) -> usize {
+        for (idx, buffer) in self.buffers.iter_mut().enumerate() {
+            if buffer.1 == 0 {
+                *buffer = (key, uses);
+                return idx;
+            }
+        }
+        self.buffers.push((key, uses));
+        self.buffers.len() - 1
+    }
+
+    pub fn contains(&mut self, key: K) -> bool {
+        self.buffers.iter().any(|(k, _)| *k == key)
+    }
 }
