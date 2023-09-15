@@ -1,7 +1,7 @@
 use crate::{
     midi::TimedMidiEvent,
     processor::{
-        AudioInput, AudioOutput, Chord, Delay, MidiInput, Mixer, Processor, ProcessorData,
+        AudioInput, AudioOutput, Chord, Delay, Filter, MidiInput, Mixer, Processor, ProcessorData,
         Saturator,
     },
     synth::{oscillators, Synth, SynthOpts, VoiceOpts},
@@ -66,10 +66,14 @@ impl AudioEngine {
                 decay: 0.2,
                 release: 0.1,
                 sustain: 1.0,
-                wave: oscillators::sine,
+                wave: oscillators::square,
             },
         });
         let synth = self.add_device(Box::new(synth));
+
+        let mut filter = Filter::new();
+        filter.set_cutoff(100.0);
+        let filter = self.add_device(Box::new(filter));
 
         let mut delay = Delay::new();
         delay.set_delay(0.005);
@@ -77,7 +81,7 @@ impl AudioEngine {
         delay.set_ping_pong(false);
         let delay = self.add_device(Box::new(delay));
 
-        let saturator = Saturator::new(|s| (2.0 * s).clamp(-1.0, 1.0));
+        let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
         let saturator = self.add_device(Box::new(saturator));
 
         let mut mixer = Mixer::new();
@@ -91,16 +95,13 @@ impl AudioEngine {
         self.set_midi_input(midi_in, chord);
         self.set_midi_input(chord, synth);
         for i in 0..2 {
-            self.set_audio_input(synth, i, delay, i);
-            self.set_audio_input(delay, i, mixer, i);
-            // self.set_audio_input(saturator, i, mixer, i);
-            self.set_audio_input(audio_in, i, mixer, i + 2);
-            self.set_audio_input(synth, i, mixer, i + 4);
-            self.set_audio_input(mixer, i, audio_out, i);
+            self.set_audio_input(audio_in, i, filter, i);
+            self.set_audio_input(filter, i, saturator, i);
+            self.set_audio_input(saturator, i, audio_out, i);
         }
 
         self.device_order = vec![
-            midi_in, chord, synth, audio_in, delay, saturator, mixer, audio_out,
+            audio_in, midi_in, chord, synth, filter, saturator, audio_out,
         ];
         self.midi_map.insert(midi_in, 0);
         self.midi_map.insert(chord, 1);
@@ -108,8 +109,8 @@ impl AudioEngine {
         self.audio_map.insert((synth, 1), 2);
         self.audio_map.insert((audio_in, 0), 3);
         self.audio_map.insert((audio_in, 1), 4);
-        self.audio_map.insert((delay, 0), 5);
-        self.audio_map.insert((delay, 1), 6);
+        self.audio_map.insert((filter, 0), 5);
+        self.audio_map.insert((filter, 1), 6);
         self.audio_map.insert((saturator, 0), 7);
         self.audio_map.insert((saturator, 1), 8);
         self.audio_map.insert((mixer, 0), 9);
