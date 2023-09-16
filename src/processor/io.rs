@@ -172,7 +172,11 @@ impl Processor for AudioInput {
         self.buffer.resize(left.len() + right.len(), 0.0);
 
         let read = self.channel.pop_slice(&mut self.buffer);
-        self.buffer[read..].fill(0.0);
+        if read < self.buffer.len() {
+            // Underflow condition
+            // FIXME: Pause input until sufficient samples are available
+            self.buffer[read..].fill(0.0);
+        }
 
         uninterleave_stereo(&self.buffer, left, right);
     }
