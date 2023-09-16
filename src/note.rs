@@ -1,5 +1,7 @@
 use std::sync::OnceLock;
 
+use crate::util::hz_from_note;
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Note(pub u8);
 
@@ -31,7 +33,7 @@ impl Note {
     }
 
     pub fn frequency(&self) -> f32 {
-        440.0 * 2.0f32.powf((self.0 as f32 - 69.0) / 12.0)
+        hz_from_note(self.0)
     }
 
     pub fn transpose(&self, offset: i8) -> Self {
@@ -43,9 +45,7 @@ fn note_name(note: u8) -> &'static str {
     static NOTE_NAMES: OnceLock<[&str; 128]> = OnceLock::new();
 
     let names = NOTE_NAMES.get_or_init(|| {
-        let octaves: [&[u8]; 11] = [
-            b"-1", b"0", b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8", b"9",
-        ];
+        let octaves: [&[u8]; 11] = [b"-1", b"0", b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8", b"9"];
         let notes: [&[u8]; 12] = [
             b"C", b"C#", b"D", b"D#", b"E", b"F", b"F#", b"G", b"G#", b"A", b"A#", b"B",
         ];
@@ -61,11 +61,7 @@ fn note_name(note: u8) -> &'static str {
             })
             .collect::<Vec<u8>>()
             .leak();
-        core::array::from_fn(|i| {
-            std::str::from_utf8(&buffer[4 * i..4 * (i + 1)])
-                .unwrap()
-                .trim()
-        })
+        core::array::from_fn(|i| std::str::from_utf8(&buffer[4 * i..4 * (i + 1)]).unwrap().trim())
     });
 
     names[note as usize]

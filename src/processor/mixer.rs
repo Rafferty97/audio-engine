@@ -1,5 +1,8 @@
 use super::Processor;
-use crate::audio::buffer::{AudioBufferMut, StereoBufferMut};
+use crate::{
+    audio::buffer::{AudioBufferMut, StereoBufferMut},
+    util::scale_from_gain,
+};
 
 const MAX_INPUTS: usize = 128;
 
@@ -25,7 +28,7 @@ impl Mixer {
     }
 
     pub fn set_gain(&mut self, input_idx: usize, gain: f32) {
-        self.gains[input_idx] = 10.0f32.powf(gain / 20.0);
+        self.gains[input_idx] = scale_from_gain(gain);
     }
 
     pub fn set_pan(&mut self, input_idx: usize, pan: f32) {

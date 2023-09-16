@@ -1,17 +1,23 @@
 use super::Processor;
-use crate::audio::buffer::AudioBufferMut;
+use crate::{audio::buffer::AudioBufferMut, util::scale_from_gain};
 
 pub struct Gain {
     scale: f32,
 }
 
+impl Default for Gain {
+    fn default() -> Self {
+        Self { scale: 1.0 }
+    }
+}
+
 impl Gain {
     pub fn new() -> Self {
-        Self { scale: 1.0 }
+        Default::default()
     }
 
     pub fn set_gain(&mut self, gain: f32) {
-        self.scale = 10.0f32.powf(gain / 20.0);
+        self.scale = scale_from_gain(gain);
     }
 
     pub fn process(&mut self, audio_in: &[&[f32]], audio_out: &mut [&mut [f32]]) {
