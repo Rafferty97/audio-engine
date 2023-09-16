@@ -181,6 +181,10 @@ impl<'a> StereoBufferMut<'a> {
         StereoBuffer::new(self.left, self.right)
     }
 
+    pub fn as_mut(&mut self) -> StereoBufferMut {
+        StereoBufferMut::new(self.left, self.right)
+    }
+
     /// Fills all buffers with silence.
     pub fn clear(&mut self) {
         self.left.clear();

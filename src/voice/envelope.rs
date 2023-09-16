@@ -1,5 +1,3 @@
-use super::voice::VoiceOpts;
-
 #[derive(Clone, Copy)]
 pub struct AdsrEnvelope {
     /// Duration of a sample in seconds.
@@ -40,21 +38,18 @@ enum AdsrState {
     Inactive,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AdsrPhase {
-    Active,
-    Released,
-    Inactive,
-}
-
 impl AdsrEnvelope {
-    pub fn new(opts: VoiceOpts) -> Self {
+    pub fn new() -> Self {
         Self {
             inv_sample_rate: 0.0,
-            inv_attack: opts.attack.max(0.0001).recip(),
-            inv_decay: opts.decay.max(0.0001).recip(),
-            sustain: opts.sustain.clamp(0.0, 1.0),
-            inv_release: opts.release.max(0.0001).recip(),
+            // inv_attack: opts.attack.max(0.0001).recip(),
+            // inv_decay: opts.decay.max(0.0001).recip(),
+            // sustain: opts.sustain.clamp(0.0, 1.0),
+            // inv_release: opts.release.max(0.0001).recip(),
+            inv_attack: 0.001_f32.recip(),
+            inv_decay: 1.0_f32.recip(),
+            sustain: 1.0_f32,
+            inv_release: 0.001_f32.recip(),
             state: AdsrState::Inactive,
             amp: 0.0,
         }
@@ -62,16 +57,6 @@ impl AdsrEnvelope {
 
     pub fn set_sample_rate(&mut self, sample_rate: u32) {
         self.inv_sample_rate = (sample_rate as f32).recip();
-    }
-
-    pub fn phase(&self) -> AdsrPhase {
-        match self.state {
-            AdsrState::Attack { .. } => AdsrPhase::Active,
-            AdsrState::Decay { .. } => AdsrPhase::Active,
-            AdsrState::Sustain => AdsrPhase::Active,
-            AdsrState::Release { .. } => AdsrPhase::Released,
-            AdsrState::Inactive => AdsrPhase::Inactive,
-        }
     }
 
     pub fn trigger(&mut self) {
@@ -86,6 +71,10 @@ impl AdsrEnvelope {
             start: self.amp,
             t: 0.0,
         };
+    }
+
+    pub fn active(&self) -> bool {
+        !matches!(self.state, AdsrState::Inactive)
     }
 
     pub fn process(&mut self) -> f32 {

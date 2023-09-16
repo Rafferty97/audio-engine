@@ -1,9 +1,6 @@
 use crate::{
     midi::TimedMidiEvent,
-    processor::{
-        AudioInput, AudioOutput, Chord, Delay, Filter, MidiInput, Mixer, Processor, ProcessorData, Sampler, Saturator,
-    },
-    synth::{oscillators, Synth, SynthOpts, VoiceOpts},
+    processor::{Processor, ProcessorData},
 };
 use bumpalo::Bump;
 use slotmap::{new_key_type, Key, SecondaryMap, SlotMap};

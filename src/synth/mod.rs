@@ -1,77 +1,32 @@
-use self::voice::Voice;
-pub use self::voice::VoiceOpts;
+use self::voice::VoiceManager;
 use crate::{
     audio::buffer::StereoBufferMut,
     midi::{MidiEvent, TimedMidiEvent},
     processor::{Processor, ProcessorData, ProcessorDescription},
+    voice::oscillator::SimpleOscillator,
 };
 
-mod envelope;
-pub mod oscillators;
 mod voice;
 
-pub struct Synth {
-    pitch_bend_cents: usize,
-    voices: Vec<Voice>,
-    counter: usize,
+pub struct SimpleSynth {
+    voices: VoiceManager<SimpleOscillator>,
 }
 
-#[derive(Copy, Clone)]
-pub struct SynthOpts {
-    pub num_voices: u8,
-    pub voice_opts: VoiceOpts,
-}
-
-impl Synth {
-    pub fn new(opts: SynthOpts) -> Self {
-        let voice = Voice::new(opts.voice_opts);
+impl SimpleSynth {
+    pub fn new() -> Self {
         Self {
-            pitch_bend_cents: 100,
-            voices: std::iter::repeat(voice)
-                .take(opts.num_voices as usize)
-                .collect(),
-            counter: 0,
+            voices: VoiceManager::new(32, SimpleOscillator::new()),
         }
     }
 }
 
-impl Synth {
-    fn process(&mut self, midi_in: &[TimedMidiEvent], mut audio_out: StereoBufferMut) {
-        for TimedMidiEvent { event, .. } in midi_in {
-            match event {
-                MidiEvent::NoteOn { note, velocity, .. } => {
-                    let voice = self
-                        .voices
-                        .iter_mut()
-                        .min_by_key(|v| v.priority(*note))
-                        .unwrap();
-                    voice.trigger(*note, *velocity, self.counter);
-                    self.counter += 1;
-                }
-                MidiEvent::NoteOff { note, .. } => {
-                    if let Some(voice) = self.voices.iter_mut().find(|v| v.note() == Some(*note)) {
-                        voice.release(self.counter);
-                        self.counter += 1;
-                    }
-                }
-                MidiEvent::PitchBend { value, .. } => {
-                    let bend = calc_pitch_bend(*value, self.pitch_bend_cents);
-                    for voice in &mut self.voices {
-                        voice.set_pitch_bend(bend);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        audio_out.clear();
-        for voice in &mut self.voices {
-            voice.process(audio_out.left, audio_out.right);
-        }
+impl SimpleSynth {
+    fn process(&mut self, midi_in: &[TimedMidiEvent], audio_out: StereoBufferMut) {
+        self.voices.process_midi(midi_in, audio_out)
     }
 }
 
-impl Processor for Synth {
+impl Processor for SimpleSynth {
     fn description(&self) -> ProcessorDescription {
         ProcessorDescription {
             min_audio_ins: 0,
@@ -81,9 +36,7 @@ impl Processor for Synth {
     }
 
     fn set_sample_rate(&mut self, sample_rate: u32) {
-        for voice in &mut self.voices {
-            voice.set_sample_rate(sample_rate);
-        }
+        self.voices.set_sample_rate(sample_rate)
     }
 
     fn process(&mut self, data: ProcessorData) {

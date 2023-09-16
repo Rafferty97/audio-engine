@@ -9,7 +9,7 @@ use super::Processor;
 pub struct Sampler {
     /// Audio buffer containing the sample, partitioned in half
     /// with the left channel samples followed by the right channel samples.
-    buffer: Vec<f32>,
+    buffer: Vec<f32>, // FIXME: Share buffer?
     /// Current play position of the sample, in samples.
     read_idx: usize,
     /// The sample rate of the sample in the internal buffer

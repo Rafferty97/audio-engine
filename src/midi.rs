@@ -2,31 +2,19 @@ use crate::note::Note;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct TimedMidiEvent {
+    /// Number of samples that have elapsed since the last event,
+    /// or beginning of the batch of MIDI events.
     pub time: u32,
+    /// The event itself.
     pub event: MidiEvent,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum MidiEvent {
-    NoteOn {
-        channel: u8,
-        note: Note,
-        velocity: u8,
-    },
-    NoteOff {
-        channel: u8,
-        note: Note,
-        velocity: u8,
-    },
-    ControlChange {
-        channel: u8,
-        control: u8,
-        value: u8,
-    },
-    PitchBend {
-        channel: u8,
-        value: u16,
-    },
+    NoteOn { channel: u8, note: Note, velocity: u8 },
+    NoteOff { channel: u8, note: Note, velocity: u8 },
+    ControlChange { channel: u8, control: u8, value: u8 },
+    PitchBend { channel: u8, value: u16 },
     Invalid,
 }
 
