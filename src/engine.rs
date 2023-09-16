@@ -1,8 +1,7 @@
 use crate::{
     midi::TimedMidiEvent,
     processor::{
-        AudioInput, AudioOutput, Chord, Delay, Filter, MidiInput, Mixer, Processor, ProcessorData,
-        Saturator,
+        AudioInput, AudioOutput, Chord, Delay, Filter, MidiInput, Mixer, Processor, ProcessorData, Sampler, Saturator,
     },
     synth::{oscillators, Synth, SynthOpts, VoiceOpts},
 };
@@ -47,64 +46,6 @@ impl AudioEngine {
             midi_map: HashMap::new(),
             device_order: vec![],
         }
-    }
-
-    pub fn test(
-        &mut self,
-        audio_in: AudioInput,
-        audio_out: AudioOutput,
-        midi_in: MidiInput,
-    ) -> DeviceId {
-        let audio_in = self.add_device(Box::new(audio_in));
-
-        let midi_in = self.add_device(Box::new(midi_in));
-
-        let mut chord = Chord::new();
-        // chord.set_chord(0x1001001);
-        let chord = self.add_device(Box::new(chord));
-
-        let synth = Synth::new(SynthOpts {
-            num_voices: 32,
-            voice_opts: VoiceOpts {
-                attack: 0.1,
-                decay: 0.2,
-                release: 0.1,
-                sustain: 1.0,
-                wave: oscillators::square,
-            },
-        });
-        let synth = self.add_device(Box::new(synth));
-
-        let mut filter = Filter::new();
-        filter.set_cutoff(100.0);
-        let filter = self.add_device(Box::new(filter));
-
-        let mut delay = Delay::new();
-        delay.set_delay(0.005);
-        delay.set_feedback(0.0);
-        delay.set_ping_pong(false);
-        let delay = self.add_device(Box::new(delay));
-
-        let saturator = Saturator::new(|s| s.clamp(-1.0, 1.0));
-        let saturator = self.add_device(Box::new(saturator));
-
-        let mut mixer = Mixer::new();
-        mixer.set_gain(0, -12.0);
-        mixer.set_gain(1, -12.0);
-        mixer.set_gain(2, -12.0);
-        let mixer = self.add_device(Box::new(mixer));
-
-        let audio_out = self.add_device(Box::new(audio_out));
-
-        self.set_midi_input(midi_in, chord);
-        self.set_midi_input(chord, synth);
-        for i in 0..2 {
-            self.set_audio_input(audio_in, i, filter, i);
-            self.set_audio_input(filter, i, saturator, i);
-            self.set_audio_input(saturator, i, audio_out, i);
-        }
-
-        delay
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: u32) {
@@ -202,25 +143,14 @@ impl AudioEngine {
             let descr = device.description();
 
             // Prepare audio buffers
-            let inputs = self
-                .audio_inputs
-                .get(device_id)
-                .map(|i| &i[..])
-                .unwrap_or(&[]);
+            let inputs = self.audio_inputs.get(device_id).map(|i| &i[..]).unwrap_or(&[]);
             let num_inputs = inputs.len().clamp(descr.min_audio_ins, descr.max_audio_ins);
             let num_outputs = descr.num_audio_outs;
             let (audio_in, audio_out) = borrow_buffers(
                 &mut self.audio_buffers,
                 len,
-                (0..num_inputs).map(|ch| {
-                    inputs
-                        .get(ch)
-                        .and_then(|i| self.audio_map.get(i))
-                        .copied()
-                        .unwrap_or(0)
-                }),
-                (0..num_outputs)
-                    .map(|ch| self.audio_map.get(&(device_id, ch)).copied().unwrap_or(0)),
+                (0..num_inputs).map(|ch| inputs.get(ch).and_then(|i| self.audio_map.get(i)).copied().unwrap_or(0)),
+                (0..num_outputs).map(|ch| self.audio_map.get(&(device_id, ch)).copied().unwrap_or(0)),
                 &bump,
             );
 
@@ -247,48 +177,66 @@ impl AudioEngine {
         }
     }
 
-    fn reconcile_graph(&mut self) {
+    pub fn test_connect(&mut self, devices: &[DeviceId]) {
         self.device_order.clear();
         self.audio_map.clear();
 
-        // Figure out how many times each output channel is used
-        let mut output_map = HashMap::new();
-        for (dst_device, inputs) in &self.audio_inputs {
-            for (dst_channel, src) in inputs.iter().enumerate() {
-                *output_map.entry((dst_device, dst_channel)).or_insert(0) += 1;
-            }
+        self.device_order.extend(devices);
+
+        let mut i = 0;
+        for &device_id in &devices[..devices.len() - 1] {
+            self.audio_map.insert((device_id, 0), i);
+            self.audio_map.insert((device_id, 1), i + 1);
+            i = 2 - i;
         }
 
-        // Manages buffer allocation
-        let mut audio_allocs = BufferAllocator::new();
-
-        // Process devices
-        let mut devices_left: Vec<_> = self.devices.iter().collect();
-
-        while !devices_left.is_empty() {
-            let idx = devices_left
-                .iter()
-                .position(|&(id, _)| {
-                    self.audio_inputs
-                        .get(id)
-                        .map(|inputs| {
-                            inputs
-                                .iter()
-                                .all(|&i| i.0.is_null() || audio_allocs.contains(i))
-                        })
-                        .unwrap_or(true)
-                })
-                .unwrap();
-            let (device_id, device) = devices_left.swap_remove(idx);
-            let descr = device.description();
-            self.device_order.push(device_id);
-            for ch in 0..descr.num_audio_outs {
-                let key = (device_id, ch);
-                let uses = output_map.get(&key).copied().unwrap_or(0);
-                let buf_idx = audio_allocs.allocate(key, uses);
-                self.audio_map.insert(key, buf_idx);
-            }
+        for devices in devices.windows(2) {
+            let &[a, b] = devices else {
+                panic!();
+            };
+            self.set_audio_input(a, 0, b, 0);
+            self.set_audio_input(a, 1, b, 1);
         }
+    }
+
+    fn reconcile_graph(&mut self) {
+        // self.device_order.clear();
+        // self.audio_map.clear();
+
+        // // Figure out how many times each output channel is used
+        // let mut output_map = HashMap::new();
+        // for (dst_device, inputs) in &self.audio_inputs {
+        //     for (dst_channel, src) in inputs.iter().enumerate() {
+        //         *output_map.entry((dst_device, dst_channel)).or_insert(0) += 1;
+        //     }
+        // }
+
+        // // Manages buffer allocation
+        // let mut audio_allocs = BufferAllocator::new();
+
+        // // Process devices
+        // let mut devices_left: Vec<_> = self.devices.iter().collect();
+
+        // while !devices_left.is_empty() {
+        //     let Some(idx) = devices_left.iter().position(|&(id, _)| {
+        //         self.audio_inputs
+        //             .get(id)
+        //             .map(|inputs| inputs.iter().all(|&i| i.0.is_null() || audio_allocs.contains(i)))
+        //             .unwrap_or(true)
+        //     }) else {
+        //         // FIXME
+        //         return;
+        //     };
+        //     let (device_id, device) = devices_left.swap_remove(idx);
+        //     let descr = device.description();
+        //     self.device_order.push(device_id);
+        //     for ch in 0..descr.num_audio_outs {
+        //         let key = (device_id, ch);
+        //         let uses = output_map.get(&key).copied().unwrap_or(0);
+        //         let buf_idx = audio_allocs.allocate(key, uses);
+        //         self.audio_map.insert(key, buf_idx);
+        //     }
+        // }
     }
 }
 
@@ -348,10 +296,7 @@ fn borrow_buffers<'a>(
 /// Asserts that the given index is valid and updates the borrow mask.
 fn assert_index_valid(idx: usize, max_buffers: usize, borrow_mask: &mut u64, mutable: bool) {
     if idx >= max_buffers {
-        panic!(
-            "Buffer index {} is out of bounds; max is {}",
-            idx, max_buffers
-        );
+        panic!("Buffer index {} is out of bounds; max is {}", idx, max_buffers);
     }
     if mutable && (*borrow_mask & (1 << idx) != 0) {
         panic!("Buffer at index {} is already borrowed", idx);

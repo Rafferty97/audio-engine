@@ -7,6 +7,7 @@ pub use gain::Gain;
 pub use io::{AudioInput, AudioOutput, MidiInput};
 pub use mixer::Mixer;
 pub use pipeline::Pipeline;
+pub use sampler::Sampler;
 pub use saturator::Saturator;
 
 mod autopan;
@@ -17,8 +18,8 @@ mod gain;
 mod io;
 mod mixer;
 mod pipeline;
+mod sampler;
 mod saturator;
-mod util;
 
 pub struct ProcessorData<'a> {
     /// List of input MIDI events

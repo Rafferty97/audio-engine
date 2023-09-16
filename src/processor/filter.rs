@@ -1,7 +1,6 @@
+use super::Processor;
 use crate::audio::buffer::{AudioBuffer, AudioBufferMut, StereoBuffer, StereoBufferMut};
 use std::{char::MAX, f32::consts::PI};
-
-use super::Processor;
 
 const MAX_COEFFS: usize = 8;
 
@@ -18,7 +17,7 @@ pub struct IIRFilter {
 }
 
 impl IIRFilter {
-    pub fn new_identity() -> Self {
+    pub fn new() -> Self {
         let mut coeffs = [0.0; MAX_COEFFS];
         coeffs[1] = 1.0;
         Self {
@@ -27,12 +26,10 @@ impl IIRFilter {
         }
     }
 
-    pub fn new_lowpass(cutoff_hz: f32, sample_rate: f32) -> Self {
-        let w = 2.0 * PI * cutoff_hz / sample_rate;
-        let a = (w / 2.0).tan();
-
+    pub fn set_lowpass(&mut self, cutoff_hz: f32, sample_rate: f32) {
+        let a = (PI * cutoff_hz / sample_rate).tan().recip();
         let a0 = 1.0 + 2f32.sqrt() * a + a.powi(2);
-        let mut coeffs = [
+        self.coeffs = [
             0.0,
             1.0 / a0,
             (2.0 * a.powi(2) - 2.0) / a0,
@@ -42,11 +39,6 @@ impl IIRFilter {
             0.0,
             0.0,
         ];
-
-        Self {
-            coeffs,
-            buffer: [0.0; MAX_COEFFS],
-        }
     }
 
     pub fn process(&mut self, audio_in: &[f32], audio_out: &mut [f32]) {
@@ -60,12 +52,7 @@ impl IIRFilter {
         self.buffer[1] = s_in;
 
         // Perform the convolution
-        let s_out = self
-            .coeffs
-            .iter()
-            .zip(self.buffer.iter())
-            .map(|(c, s)| c * s)
-            .sum();
+        let s_out = self.coeffs.iter().zip(self.buffer.iter()).map(|(c, s)| c * s).sum();
 
         // Write the output sample and return it
         self.buffer[0] = s_out;
@@ -82,7 +69,7 @@ pub struct Filter {
 impl Filter {
     pub fn new() -> Self {
         Self {
-            filters: [IIRFilter::new_identity(); 2],
+            filters: [IIRFilter::new(); 2],
             sample_rate: 0.0,
             cutoff: 0.0,
         }
@@ -94,7 +81,7 @@ impl Filter {
     }
 
     pub fn set_cutoff(&mut self, frequency: f32) {
-        self.cutoff = frequency;
+        self.cutoff = frequency.clamp(10.0, 22_000.0);
         self.calc_coefficients();
     }
 
@@ -105,7 +92,8 @@ impl Filter {
 
     fn calc_coefficients(&mut self) {
         if self.sample_rate > 0.0 {
-            self.filters = [IIRFilter::new_lowpass(self.cutoff, self.sample_rate); 2];
+            self.filters[0].set_lowpass(self.cutoff, self.sample_rate);
+            self.filters[1].set_lowpass(self.cutoff, self.sample_rate);
         }
     }
 }
@@ -121,6 +109,13 @@ impl Processor for Filter {
 
     fn set_sample_rate(&mut self, sample_rate: u32) {
         self.set_sample_rate(sample_rate);
+    }
+
+    fn set_parameter(&mut self, param_id: usize, value: f32) {
+        match param_id {
+            0 => self.set_cutoff(value),
+            _ => {}
+        }
     }
 
     fn process(&mut self, data: super::ProcessorData) {

@@ -3,11 +3,15 @@
 use crate::midi::MidiEvent;
 use crate::note::Note;
 use crate::processor::AudioOutput;
+use audio::{
+    buffer::{StereoBuffer, StereoBufferMut},
+    clip::AudioClip,
+};
 use basedrop::Collector;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use engine::AudioEngine;
-use processor::{AudioInput, MidiInput};
-use std::time::Duration;
+use processor::{AudioInput, Delay, Filter, MidiInput, Processor, ProcessorData, Sampler};
+use std::{io::BufReader, time::Duration};
 
 mod audio;
 mod convert;
@@ -26,41 +30,52 @@ fn main() {
     start_midi(tx);
 
     // Create the audio input processor
-    let host = cpal::default_host();
-    let device = host.default_input_device().unwrap();
-    let config = device.default_input_config().unwrap();
-    let (audio_in, stream) =
-        AudioInput::from_cpal(device, &config.into(), 2048, &collector.handle());
-    stream.play().unwrap();
+    // let host = cpal::default_host();
+    // let device = host.default_input_device().unwrap();
+    // let config = device.default_input_config().unwrap();
+    // let (audio_in, stream) =
+    //     AudioInput::from_cpal(device, &config.into(), 2048, &collector.handle());
+    // stream.play().unwrap();
+
+    let mut audio_in = Sampler::new();
+    let file = std::fs::File::open("123_House.wav").unwrap();
+    let reader = BufReader::new(file);
+    let clip = AudioClip::read_wav(reader, None).unwrap();
+    // let clip = clip.trim(0, 22000);
+    audio_in.set_sample(&clip);
 
     // Create the audio output processor
     let host = cpal::default_host();
     let device = host.default_output_device().unwrap();
     let config = device.default_output_config().unwrap();
     let sample_rate = config.sample_rate();
-    let (audio_out, stream) =
-        AudioOutput::from_cpal(device, &config.into(), 2048, &collector.handle());
+    let (audio_out, stream) = AudioOutput::from_cpal(device, &config.into(), 2048, &collector.handle());
     stream.play().unwrap();
+
+    // Create a filter effect
+    let mut filter = Filter::new();
+    filter.set_cutoff(2000.0);
+
+    // Create a delay effect
+    let mut delay = Delay::new();
+    delay.set_delay(0.25);
+    delay.set_feedback(0.25);
+    delay.set_ping_pong(true);
 
     // Create the audio engine
     let mut engine = AudioEngine::new();
-    let delay = engine.test(audio_in, audio_out, midi_in);
+    let audio_in = engine.add_device(Box::new(audio_in));
+    let delay = engine.add_device(Box::new(delay));
+    let filter = engine.add_device(Box::new(filter));
+    let audio_out = engine.add_device(Box::new(audio_out));
+    engine.test_connect(&[audio_in, filter, audio_out]);
 
     // Configure the audio engine
     engine.set_sample_rate(sample_rate.0);
 
     // Processing loop
-    let mut i = 0;
-    let mut d = 0.4;
     loop {
         engine.process(256);
-
-        // i += 256;
-        // if i > 4 * sample_rate.0 {
-        //     d = 0.6 - d;
-        //     engine.get_device_mut(delay).set_parameter(0, d);
-        //     i = 0;
-        // }
     }
 }
 

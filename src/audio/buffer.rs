@@ -1,3 +1,5 @@
+use std::{ops::Range, slice::SliceIndex};
+
 pub trait AudioBuffer<'a>: Sized {
     fn samples(self) -> &'a [f32];
 }
@@ -136,6 +138,13 @@ impl<'a> StereoBuffer<'a> {
             StereoChannel::Right => self.right,
         }
     }
+
+    pub fn slice(&self, range: impl SliceIndex<[f32], Output = [f32]> + Clone) -> StereoBuffer {
+        StereoBuffer {
+            left: &self.left[range.clone()],
+            right: &self.right[range],
+        }
+    }
 }
 
 pub struct StereoBufferMut<'a> {
@@ -176,6 +185,32 @@ impl<'a> StereoBufferMut<'a> {
     pub fn clear(&mut self) {
         self.left.clear();
         self.right.clear();
+    }
+
+    pub fn copy(&mut self, other: StereoBuffer) {
+        self.left.copy(other.left);
+        self.right.copy(other.right);
+    }
+
+    pub fn slice(&self, range: impl SliceIndex<[f32], Output = [f32]> + Clone) -> StereoBuffer {
+        StereoBuffer {
+            left: &self.left[range.clone()],
+            right: &self.right[range],
+        }
+    }
+
+    pub fn slice_mut(&mut self, range: impl SliceIndex<[f32], Output = [f32]> + Clone) -> StereoBufferMut {
+        StereoBufferMut {
+            left: &mut self.left[range.clone()],
+            right: &mut self.right[range],
+        }
+    }
+
+    pub fn into_slice_mut(self, range: impl SliceIndex<[f32], Output = [f32]> + Clone) -> StereoBufferMut<'a> {
+        StereoBufferMut {
+            left: &mut self.left[range.clone()],
+            right: &mut self.right[range],
+        }
     }
 }
 

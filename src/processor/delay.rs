@@ -77,19 +77,19 @@ impl Delay {
             audio_out.left[i..j].copy(&*buffers[0]);
             audio_out.right[i..j].copy(&*buffers[1]);
 
-            // Attenuate the output for feedback
-            buffers[0].scale(self.feedback);
-            buffers[1].scale(self.feedback);
-
             // Combine input and feedback signals, and write to ring buffers
             if self.ping_pong {
                 // Write input only to right channel and swap feedback lines
+                // Don't scale the feedback from the left to right channel
+                buffers[1].scale(self.feedback);
                 buffers[1].add_scaled(&audio_in.left[i..j], 0.5);
                 buffers[1].add_scaled(&audio_in.right[i..j], 0.5);
                 lines[0].write(buffers[1]);
                 lines[1].write(buffers[0]);
             } else {
                 // Write input to respective channels and don't swap feedback lines
+                buffers[0].scale(self.feedback);
+                buffers[1].scale(self.feedback);
                 buffers[0].add(&audio_in.left[i..j]);
                 buffers[1].add(&audio_in.right[i..j]);
                 lines[0].write(buffers[0]);

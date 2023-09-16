@@ -6,24 +6,39 @@ const MAX_INPUTS: usize = 128;
 pub struct Mixer {
     /// The gain factors for each input channel
     gains: [f32; MAX_INPUTS],
+    /// The pan for each input channel, from -1.0 for left and 1.0 for right
+    pans: [f32; MAX_INPUTS],
+}
+
+impl Default for Mixer {
+    fn default() -> Self {
+        Self {
+            gains: [1.0; MAX_INPUTS],
+            pans: [0.0; MAX_INPUTS],
+        }
+    }
 }
 
 impl Mixer {
     pub fn new() -> Self {
-        Self {
-            gains: [1.0; MAX_INPUTS],
-        }
+        Default::default()
     }
 
     pub fn set_gain(&mut self, input_idx: usize, gain: f32) {
         self.gains[input_idx] = 10.0f32.powf(gain / 20.0);
     }
 
+    pub fn set_pan(&mut self, input_idx: usize, pan: f32) {
+        self.pans[input_idx] = pan.clamp(-1.0, 1.0);
+    }
+
     pub fn process(&mut self, audio_in: &[&[f32]], mut audio_out: StereoBufferMut) {
         audio_out.clear();
         for (idx, buffers) in audio_in.chunks_exact(2).enumerate() {
-            audio_out.left.add_scaled(buffers[0], self.gains[idx]);
-            audio_out.right.add_scaled(buffers[1], self.gains[idx]);
+            let gain = self.gains[idx];
+            let pan = self.pans[idx];
+            audio_out.left.add_scaled(buffers[0], gain * (1.0 - pan));
+            audio_out.right.add_scaled(buffers[1], gain * (1.0 + pan));
         }
     }
 }
@@ -39,6 +54,17 @@ impl Processor for Mixer {
 
     fn set_sample_rate(&mut self, _sample_rate: u32) {
         // Nothing to do
+    }
+
+    fn set_parameter(&mut self, param_id: usize, value: f32) {
+        let channel = param_id / 2;
+        if channel < MAX_INPUTS {
+            match param_id % 2 {
+                0 => self.set_gain(channel, value),
+                1 => self.set_pan(channel, value),
+                _ => unreachable!(),
+            }
+        }
     }
 
     fn process(&mut self, data: super::ProcessorData) {
