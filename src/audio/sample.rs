@@ -1,19 +1,18 @@
+use super::buffer::{AudioBufferMut, MonoBuffer, StereoBuffer};
+use crate::convert::uninterleave_stereo;
 use std::io::Read;
 use thiserror::Error;
-
-use crate::convert::uninterleave_stereo;
-
-use super::buffer::{AudioBufferMut, StereoBuffer};
 
 /// A callback function for reporting progress of a long-running process.
 type ProgressFn = Box<dyn FnMut(f64)>;
 
 #[derive(Clone)]
-pub struct AudioClip {
+pub struct AudioSample {
     channel_format: ChannelFormat,
     sample_rate: u32,
-    data: [Box<[f32]>; 2],
-    peaks: Option<[(f32, f32); 2]>,
+    length: usize,
+    data: Box<[f32]>,
+    peaks: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,7 +21,31 @@ pub enum ChannelFormat {
     Stereo,
 }
 
-impl AudioClip {
+impl AudioSample {
+    pub fn new_mono(sample_rate: u32, audio: MonoBuffer) -> Self {
+        Self {
+            channel_format: ChannelFormat::Mono,
+            sample_rate,
+            length: audio.len(),
+            data: audio.channel().to_vec().into_boxed_slice(),
+            peaks: None,
+        }
+    }
+
+    pub fn new_stereo(sample_rate: u32, audio: StereoBuffer) -> Self {
+        let mut data = Vec::with_capacity(2 * audio.len());
+        data.extend_from_slice(audio.left);
+        data.extend_from_slice(audio.right);
+
+        Self {
+            channel_format: ChannelFormat::Stereo,
+            sample_rate,
+            length: audio.len(),
+            data: data.into_boxed_slice(),
+            peaks: None,
+        }
+    }
+
     pub fn read_wav(reader: impl Read, progress: Option<ProgressFn>) -> Result<Self, ReadAudioClipError> {
         let mut wav = hound::WavReader::new(reader)?;
 
@@ -57,18 +80,12 @@ impl AudioClip {
 
         // De-interlace the samples
         let (channel_format, data) = match channels {
-            1 => (
-                ChannelFormat::Mono,
-                [samples.into_boxed_slice(), vec![].into_boxed_slice()],
-            ),
+            1 => (ChannelFormat::Mono, samples.into_boxed_slice()),
             2 => {
-                let mut left = vec![0.0; length];
-                let mut right = vec![0.0; length];
-                uninterleave_stereo(&samples, &mut left, &mut right);
-                (
-                    ChannelFormat::Stereo,
-                    [left.into_boxed_slice(), right.into_boxed_slice()],
-                )
+                let mut data = vec![0.0; 2 * length];
+                let (left, right) = data.split_at_mut(length);
+                uninterleave_stereo(&samples, left, right);
+                (ChannelFormat::Stereo, data.into_boxed_slice())
             }
             _ => return Err(ReadAudioClipError::BadFormat("Unsupported number of channels")),
         };
@@ -77,6 +94,7 @@ impl AudioClip {
         Ok(Self {
             channel_format,
             sample_rate,
+            length,
             data,
             peaks: None,
         })
@@ -86,62 +104,72 @@ impl AudioClip {
         self.sample_rate
     }
 
-    pub fn stereo_data(&self) -> StereoBuffer {
+    pub fn length(&self) -> usize {
+        self.length
+    }
+
+    pub fn channels(&self) -> usize {
         match self.channel_format {
-            // For mono clips, copy the mono buffer to both channels
-            ChannelFormat::Mono => StereoBuffer::new(&self.data[0], &self.data[0]),
-            // For stereo clips, just pass the data as is
-            ChannelFormat::Stereo => StereoBuffer::new(&self.data[0], &self.data[1]),
+            ChannelFormat::Mono => 1,
+            ChannelFormat::Stereo => 2,
         }
     }
 
-    pub fn trim(&self, start: usize, end: usize) -> AudioClip {
-        let len = self.data[0].len();
-
-        let start = start.clamp(0, len);
-        let end = end.clamp(start, len);
-
-        let data = [
-            self.data[0][start..end].to_vec().into_boxed_slice(),
-            if self.data[1].is_empty() {
-                vec![].into_boxed_slice()
-            } else {
-                self.data[1][start..end].to_vec().into_boxed_slice()
-            },
-        ];
-
-        Self { data, ..*self }
+    pub fn data(&self, channel: usize) -> &[f32] {
+        self.data
+            .chunks_exact(self.length)
+            .nth(channel)
+            .expect("Channel is out of range")
     }
 
-    /// Calculates the extreme values (minimum and maximum) of the samples for each channel.
-    pub fn analyze_peaks(&mut self) -> [(f32, f32); 2] {
+    pub fn stereo_data(&self) -> StereoBuffer {
+        match self.channel_format {
+            // For mono clips, copy the mono buffer to both channels
+            ChannelFormat::Mono => StereoBuffer::new(&self.data, &self.data),
+            // For stereo clips, just pass the data as is
+            ChannelFormat::Stereo => {
+                let (left, right) = self.data.split_at(self.length);
+                StereoBuffer::new(left, right)
+            }
+        }
+    }
+
+    pub fn trim(&self, start: usize, end: usize) -> AudioSample {
+        // Clamp start and end indices and compute new length
+        let start = start.clamp(0, self.length);
+        let end = end.clamp(start, self.length);
+        let length = end - start;
+
+        // Trim the data in each channel
+        let mut data = Vec::with_capacity(self.channels() * length);
+        for channel in 0..self.channels() {
+            data.extend_from_slice(&self.data(channel)[start..end]);
+        }
+        let data = data.into_boxed_slice();
+
+        Self { data, length, ..*self }
+    }
+
+    /// Calculates the extreme values (minimum and maximum) of the samples across all channels.
+    pub fn analyze_peaks(&mut self) -> (f32, f32) {
         *self.peaks.get_or_insert_with(|| {
-            [0, 1].map(|i| {
-                (
-                    self.data[i].iter().copied().reduce(f32::min).unwrap_or(0.0),
-                    self.data[i].iter().copied().reduce(f32::max).unwrap_or(0.0),
-                )
-            })
+            self.data
+                .iter()
+                .fold((0.0, 0.0), |(min, max), &s| (min.min(s), max.max(s)))
         })
     }
 
     /// Normalizes the audio clip such that the most extreme sample reaches a value of -1.0 or 1.0.
     pub fn normalize(&mut self) {
-        let peaks = self.analyze_peaks();
-        let peak = peaks
-            .iter()
-            .map(|&(min, max)| f32::max(-min, max))
-            .reduce(f32::max)
-            .unwrap_or(0.0);
+        let (min, max) = self.analyze_peaks();
+        let peak = f32::max(-min, max);
 
         let scale = peak.recip();
         if !scale.is_finite() {
             return;
         }
 
-        for samples in &mut self.data {
-            samples.scale(scale);
-        }
+        self.data.scale(scale);
     }
 }
 

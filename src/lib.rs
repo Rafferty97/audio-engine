@@ -5,5 +5,6 @@ pub mod midi;
 pub mod note;
 pub mod processor;
 pub mod synth;
+pub mod track;
 mod util;
 pub mod voice;

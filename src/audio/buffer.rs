@@ -92,6 +92,10 @@ impl<'a> MonoBuffer<'a> {
         Self { channel }
     }
 
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
     pub fn channel(&self) -> &[f32] {
         self.channel
     }

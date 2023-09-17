@@ -1,18 +1,19 @@
-use crate::audio::{
-    buffer::{StereoBuffer, StereoBufferMut},
-    clip::AudioClip,
-    resample::{CubicInterpolator, Resampler},
-};
-
 use super::Processor;
+use crate::audio::{
+    buffer::{MonoBuffer, StereoBuffer, StereoBufferMut},
+    resample::{CubicInterpolator, Resampler},
+    sample::AudioSample,
+};
+use std::sync::{Arc, OnceLock};
+
+static EMPTY_SAMPLE: OnceLock<Arc<AudioSample>> = OnceLock::new();
 
 pub struct Sampler {
-    /// Audio buffer containing the sample, partitioned in half
-    /// with the left channel samples followed by the right channel samples.
-    buffer: Vec<f32>, // FIXME: Share buffer?
+    /// The audio sample.
+    sample: Arc<AudioSample>,
     /// Current play position of the sample, in samples.
     read_idx: usize,
-    /// The sample rate of the sample in the internal buffer
+    /// The sample rate of the sample.
     sample_rate_in: f32,
     /// The sample rate of the audio output.
     sample_rate_out: f32,
@@ -23,24 +24,24 @@ pub struct Sampler {
 }
 
 impl Sampler {
-    pub fn new() -> Self {
+    pub fn new(sample: Arc<AudioSample>) -> Self {
+        let sample_rate_in = sample.sample_rate() as f32;
         Self {
-            // Initialise buffer with short length of silence
-            buffer: vec![0.0; 1024],
+            sample,
             read_idx: 0,
-            sample_rate_in: 0.0,
+            sample_rate_in,
             sample_rate_out: 0.0,
             samplers: [Resampler::new(), Resampler::new()],
             one_hit: false, // FIXME
         }
     }
 
-    pub fn set_sample(&mut self, clip: &AudioClip) {
-        let data = clip.stereo_data();
-        self.buffer.clear();
-        self.buffer.extend(data.left);
-        self.buffer.extend(data.right);
-        self.sample_rate_in = clip.sample_rate() as f32;
+    pub fn new_empty() -> Self {
+        Self::new(empty_sample())
+    }
+
+    pub fn set_sample(&mut self, sample: Arc<AudioSample>) {
+        self.sample = sample;
         self.read_idx = 0;
     }
 
@@ -50,7 +51,7 @@ impl Sampler {
 
     /// Returns the length of the internal sample in samples.
     fn length(&self) -> usize {
-        self.buffer.len() / 2
+        self.sample.length()
     }
 
     pub fn process(&mut self, audio_out: StereoBufferMut) {
@@ -83,7 +84,7 @@ impl Sampler {
     /// Fills the provided buffer with raw audio from the internal sample,
     /// without advancing the read position into the sample.
     fn fill_buffers(&mut self, audio_out: StereoBufferMut) {
-        let vin = split_buffer(&self.buffer);
+        let vin = self.sample.stereo_data();
         let mut vout = audio_out;
 
         let mut idx = self.read_idx;
@@ -131,7 +132,12 @@ impl Processor for Sampler {
     }
 }
 
-fn split_buffer(samples: &[f32]) -> StereoBuffer {
-    let (left, right) = samples.split_at(samples.len() / 2);
-    StereoBuffer::new(left, right)
+fn empty_sample() -> Arc<AudioSample> {
+    EMPTY_SAMPLE
+        .get_or_init(|| {
+            let data = [0.0; 1024];
+            let buffer = MonoBuffer::new(&data);
+            Arc::new(AudioSample::new_mono(48000, buffer))
+        })
+        .clone()
 }

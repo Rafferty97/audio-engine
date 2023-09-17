@@ -41,6 +41,21 @@ impl IIRFilter {
         ];
     }
 
+    pub fn set_highpass(&mut self, cutoff_hz: f32, sample_rate: f32) {
+        let a = (PI * cutoff_hz / sample_rate).tan().recip();
+        let a0 = 1.0 + 2f32.sqrt() * a + a.powi(2);
+        self.coeffs = [
+            0.0,
+            a.powi(2) / a0,
+            (2.0 * a.powi(2) - 2.0) / a0,
+            -2.0 * a.powi(2) / a0,
+            (-1.0 + 2f32.sqrt() * a - a.powi(2)) / a0,
+            a.powi(2) / a0,
+            0.0,
+            0.0,
+        ];
+    }
+
     pub fn process(&mut self, audio_in: &[f32], audio_out: &mut [f32]) {
         assert!(audio_in.len() == audio_out.len());
         audio_out.map(audio_in, |_, s| self.process_sample(s));
@@ -92,8 +107,8 @@ impl Filter {
 
     fn calc_coefficients(&mut self) {
         if self.sample_rate > 0.0 {
-            self.filters[0].set_lowpass(self.cutoff, self.sample_rate);
-            self.filters[1].set_lowpass(self.cutoff, self.sample_rate);
+            self.filters[0].set_highpass(self.cutoff, self.sample_rate);
+            self.filters[1].set_highpass(self.cutoff, self.sample_rate);
         }
     }
 }
