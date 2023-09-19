@@ -91,12 +91,25 @@ impl Interpolator for CubicInterpolator {
     #[inline]
     fn interpolate(t: f32, samples: &[f32]) -> f32 {
         let a0 = samples[1];
-        let a1 =
-            -(1.0 / 3.0) * samples[0] - (0.5) * samples[1] + samples[2] - (1.0 / 6.0) * samples[3];
+        let a1 = -(1.0 / 3.0) * samples[0] - (0.5) * samples[1] + samples[2] - (1.0 / 6.0) * samples[3];
         let a2 = (0.5) * (samples[0] + samples[2]) - samples[1];
         let a3 = (0.5) * (samples[1] - samples[2]) + (1.0 / 6.0) * (samples[3] - samples[0]);
         let x2 = t * t;
         let x3 = x2 * t;
         a0 + a1 * t + a2 * x2 + a3 * x3
+    }
+}
+
+pub struct FloorInterpolator;
+
+impl Interpolator for FloorInterpolator {
+    #[inline]
+    fn window() -> usize {
+        0
+    }
+
+    #[inline]
+    fn interpolate(_t: f32, samples: &[f32]) -> f32 {
+        samples[0]
     }
 }
